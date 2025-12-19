@@ -52,6 +52,10 @@ def run_theta(dt,nstep,namelist):
     ngp = params['np']
     nlev = params['nlev']
 
+    print(f"nelemd: {nelemd}")
+    print(f"ngp: {ngp}")
+    print(f"nlev: {nlev}")
+
     # Get info needed to save unique points only
     num_unique_pts = np.ndarray([nelemd],dtype=np.int32)
     unique_i = np.ndarray([nelemd,ngp*ngp],dtype=np.int32)
@@ -61,44 +65,48 @@ def run_theta(dt,nstep,namelist):
     pyhommexx.get_unique_pts(unique_i,unique_j)
 
     ncol = np.sum(num_unique_pts)
+    print(f"ncol: {ncol}")
 
-    v = np.ndarray([nelemd,2,ngp,ngp,nlev],dtype=np.float64)
-    vthdp = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    dp = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-
-    print(f"nelemd: {nelemd}")
-    print(f"ngp: {ngp}")
-    print(f"nlev: {nlev}")
-    pyhommexx.get_state(v,vthdp,dp)
+    # Run hommexx
     for n in range(nstep):
         pyhommexx.forward(dt)
-    pyhommexx.get_state(v,vthdp,dp)
-    pyhommexx.finalize()
 
-    v_unique = np.ndarray([2,nlev,ncol],dtype=np.float64)
+    # Retrieve final state
+    u = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    v = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    pyhommexx.get_state_var(u,"u")
+    pyhommexx.get_state_var(v,"v")
+
+    u_unique = np.ndarray([nlev,ncol],dtype=np.float64)
+    v_unique = np.ndarray([nlev,ncol],dtype=np.float64)
     icol = 0
     for ie in range(nelemd):
         for n in range (num_unique_pts[ie]):
             ip = unique_i[ie,n]
             jp = unique_j[ie,n]
-            v_unique[:,:,icol] = v[ie,:,ip,jp,:]
+            u_unique[:,icol] = u[ie,ip,jp,:]
+            v_unique[:,icol] = v[ie,ip,jp,:]
             icol += 1
 
+    u_with_time = np.expand_dims(u_unique,0)
     v_with_time = np.expand_dims(v_unique,0)
 
     ds = xr.Dataset()
 
-    ds['u'] = xr.DataArray(v_with_time[:,0,:,:],
+    ds['u'] = xr.DataArray(u_with_time[:,:,:],
                            dims=['time', 'lev', 'ncol'],
                            coords={'time': np.arange(1),
                                    'lev': np.arange(nlev),
                                    'ncol': np.arange(ncol)})
-    ds['v'] = xr.DataArray(v_with_time[:,1,:,:],
+    ds['v'] = xr.DataArray(v_with_time[:,:,:],
                            dims=['time', 'lev', 'ncol'],
                            coords={'time': np.arange(1),
                                    'lev': np.arange(nlev),
                                    'ncol': np.arange(ncol)})
     ds.to_netcdf('pyhommexx.nc')
+
+    # Finalize hommexx
+    pyhommexx.finalize()
 
 ###############################################################################
 if (__name__ == "__main__"):
