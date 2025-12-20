@@ -6,7 +6,7 @@ import pathlib
 import numpy as np
 import xarray as xr
 
-PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/serial/debug/src/theta-l_kokkos/pyhommexx/"
+PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/serial/release/src/theta-l_kokkos/pyhommexx/"
 sys.path.append(PYHOMMEXX_LIB_PATH)
 import pyhommexx
 
@@ -43,18 +43,24 @@ EXAMPLES:
 def run_theta(dt,nstep,namelist):
 ###############################################################################
 
-    comm = MPI.COMM_WORLD
+    pyhommexx.init_session()
 
-    pyhommexx.init(comm,"namelist.nl")
+    # Read namelist parameters
+    pyhommexx.read_params(namelist)
     params = pyhommexx.get_params()
 
-    nelemd = params['nelemd']
+    ne = params['ne']
     ngp = params['np']
     nlev = params['nlev']
 
-    print(f"nelemd: {nelemd}")
+    print(f"ne: {ne}")
     print(f"ngp: {ngp}")
     print(f"nlev: {nlev}")
+
+    # Initialize model
+    pyhommexx.model_init()
+    nelemd = pyhommexx.get_nelemd(); # Not available until prim_init decomposes the grid
+    print(f"nelemd: {nelemd}")
 
     # Get info needed to save unique points only
     num_unique_pts = np.ndarray([nelemd],dtype=np.int32)
