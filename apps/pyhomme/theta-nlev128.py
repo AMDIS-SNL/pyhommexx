@@ -36,11 +36,13 @@ EXAMPLES:
     #  # The name of the nc files where to grab data from
     parser.add_argument("-nml","--namelist", type=str, required=True,
                         help="Path to the runtime namelist file")
+    parser.add_argument("-p","--perturb", type=float, default=0,
+                        help="Relative perturbation level to add to the IC")
 
     return parser.parse_args(args[1:])
 
 ###############################################################################
-def run_theta(dt,nstep,namelist):
+def run_theta(dt,nstep,namelist,perturb):
 ###############################################################################
 
     pyhommexx.init_session()
@@ -53,14 +55,12 @@ def run_theta(dt,nstep,namelist):
     ngp = params['np']
     nlev = params['nlev']
 
-    print(f"ne: {ne}")
-    print(f"ngp: {ngp}")
-    print(f"nlev: {nlev}")
-
     # Initialize model
     pyhommexx.model_init()
     nelemd = pyhommexx.get_nelemd(); # Not available until prim_init decomposes the grid
-    print(f"nelemd: {nelemd}")
+
+    u = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    v = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
 
     # Get info needed to save unique points only
     num_unique_pts = np.ndarray([nelemd],dtype=np.int32)
@@ -71,15 +71,29 @@ def run_theta(dt,nstep,namelist):
     pyhommexx.get_unique_pts(unique_i,unique_j)
 
     ncol = np.sum(num_unique_pts)
-    print(f"ncol: {ncol}")
+    # Get initial state, perturb it, then send it back
+    pyhommexx.get_state_var(u,"u")
+    pyhommexx.get_state_var(v,"v")
+    if perturb>0:
+        factor = 1 +  perturb * np.random.normal(size=u.shape)
+        u *= factoperturb
+        v *= factor
+        pyhommexx.set_state_var(u,"u")
+        pyhommexx.set_state_var(v,"v")
 
     # Run hommexx
+    print ("Running hommexx. Grid specs:")
+    print(f" ne: {ne}")
+    print(f" ngp: {ngp}")
+    print(f" nlev: {nlev}")
+    print(f" nelemd: {nelemd}")
+    print(f" ncol: {ncol}")
+
+
     for n in range(nstep):
         pyhommexx.forward(dt)
 
     # Retrieve final state
-    u = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    v = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
     pyhommexx.get_state_var(u,"u")
     pyhommexx.get_state_var(v,"v")
 
