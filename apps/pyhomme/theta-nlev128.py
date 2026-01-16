@@ -23,9 +23,9 @@ OR
 
 EXAMPLES:
 
-    Run theta model using homme library /path/to/theta.so and namelist /path/to/namelist.nl
+    Run 10 theta model steps using timestep 300s and namelist /path/to/namelist.nl
 
-        > ./{exec_name} -l /path/to/theta.so -n /path/to/namelist.nl
+        > ./{exec_name} -n 10 -dt 300 -n /path/to/namelist.nl
 """)
 
     # The timestep
