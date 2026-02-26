@@ -4,10 +4,10 @@ import argparse
 import sys
 import pathlib
 import numpy as np
-import xarray as xr
+import matplotlib.pyplot as plt
 
 # IMPORTANT: edit this path to point to the folder where you built pyhommexx
-PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/gcc/serial/release/src/theta-l_kokkos/pyhommexx/"
+PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/gcc/serial/pyhommexx/src/theta-l_kokkos/pyhommexx/"
 sys.path.append(PYHOMMEXX_LIB_PATH)
 import pyhommexx
 
@@ -33,7 +33,7 @@ EXAMPLES:
     parser.add_argument("-nml","--namelist", type=str, default='./namelist.nl',
                         help="Path to the runtime namelist file")
     parser.add_argument("-p","--perturb", type=float, default=0,
-                        help="Max of a gaussian perturbation centered at (30N,0) to add to the zonal velocity")
+                        help="Max of a gaussian perturbation centered at (30N,0) to add to the zonal velocity (in m/s)")
     parser.add_argument("-s","--sigma", type=float, default=1,
                         help="Sigma of a gaussian perturbation centered at (30N,0) to add to the zonal velocity (in km)")
     parser.add_argument("-f","--functor", type=str, default='caar',
@@ -44,7 +44,7 @@ EXAMPLES:
     return parser.parse_args(args[1:])
 
 ###############################################################################
-def run_theta(namelist,perturb,sigma,functor,dt):
+def run_functor(namelist,perturb,sigma,functor,dt):
 ###############################################################################
 
     # Sanity checks
@@ -53,7 +53,14 @@ def run_theta(namelist,perturb,sigma,functor,dt):
     if sigma<=0:
         raise ValueError(f"Invalid value for dt ({dt}). It should be strictly positive.")
 
+    # If you want to see homme's output during init, set arg to True
     pyhommexx.init_session(do_print_to_screen=False)
+
+    # Ensure both real and dpfad are enabled
+    # This will ensure that model_init also creates all versions of data structures and functors
+    # templated on all requested scalar types
+    pyhommexx.enable_scalar_type("real")
+    pyhommexx.enable_scalar_type("dpfad")
 
     # Read namelist parameters
     pyhommexx.read_params(namelist)
@@ -66,118 +73,106 @@ def run_theta(namelist,perturb,sigma,functor,dt):
 
     # Initialize model
     pyhommexx.model_init()
+
+    # Now that homme's long init output is over, you can toggle any homme output back ON (to see errors)
+    #  pyhommexx.toggle_screen_output(True)
+
+    # Print grid specs
     nelemd = pyhommexx.get_nelemd(); # Not available until prim_init decomposes the grid
 
-    # Get info needed to save unique points only
-    num_unique_pts = np.ndarray([nelemd],dtype=np.int32)
-    unique_i = np.ndarray([nelemd,ngp*ngp],dtype=np.int32)
-    unique_j = np.ndarray([nelemd,ngp*ngp],dtype=np.int32)
-
-    pyhommexx.get_num_unique_pts(num_unique_pts)
-    pyhommexx.get_unique_pts(unique_i,unique_j)
-
-    ncol = np.sum(num_unique_pts)
-
-    # Retrieve initial state
-    u0 = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    v0 = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    u  = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    v  = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
-    du = np.ndarray([nelemd,ngp,ngp,nlev,1],dtype=np.float64)
-    dv = np.ndarray([nelemd,ngp,ngp,nlev,1],dtype=np.float64)
-    pyhommexx.get_state_var(u0,"u")
-    pyhommexx.get_state_var(v0,"v")
-
-    if perturb>0 and sigma>0:
-        # Perturb initial meridional velocity with gaussian centered at lat=30N, lon=0,
-        # with max_perturbation 5% and decay as a gaussian with sigma=10km
-        pyhommexx.perturb_state_var("u",0.5,0,perturb,sigma*1e3)
-
-        # Check perturbed state
-        pyhommexx.get_state_var(u,"u")
-        pyhommexx.get_state_var(v,"v")
-
-        print (f"max(u-u0): {np.max(u-u0)}")
-        print (f"max(v-v0): {np.max(v-v0)}") # Should be 0, as we only perturbed u
-
-        # Check perturbed state initial sens
-        pyhommexx.get_state_var_sens(du,"u")
-        print (f"max(du): {np.max(du)}")
-
-        pyhommexx.get_state_var_sens(dv,"u")
-        print (f"max(dv): {np.max(dv)}") # Should be 0, as we only perturbed u
-
-    # Run hommexx
     print ("Grid specs:")
     print(f" ne: {ne}")
     print(f" ngp: {ngp}")
     print(f" nlev: {nlev}")
     print(f" nelemd: {nelemd}")
-    print(f" ncol: {ncol}")
 
-    # Init dp3d
+    if perturb==0 or sigma==0 or dt==0:
+        print("Input values for -dt/--dt, -p/--perturb, or -s/--sigma is 0. We won't perform any test.")
+        pyhommexx.finalize()
+        return
+
+    # Init dp3d to ref values, and copy real state into dpfad state
     pyhommexx.init_dp3d_from_ps()
+    pyhommexx.copy_state("real","dpfad")
 
-    # Run functor
-    rkparams = {'dt' : dt, 'update_tl' : True}
-    pyhommexx.run_functor(functor,rkparams)
+    # We'll need to reset state later to u_ref*perturb, so keep a copy here
+    u_ref = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    pyhommexx.get_state_var(u_ref,"u","real",0)
 
-    pyhommexx.get_state_var(u,"u")
-    pyhommexx.get_state_var(v,"v")
-    pyhommexx.get_state_var_sens(du,"u")
-    pyhommexx.get_state_var_sens(dv,"v")
+    # Run functor with dpfad first, and with different real perturb later, to check derivs
+    rkparams = {'dt' : dt}
+    pyhommexx.perturb_state_var("u",0.5,0,0,sigma,"dpfad") # perturb=0, but this inits Fad derivs
+    pyhommexx.run_functor(functor,rkparams,"dpfad")
 
-    # Extract unique columns values for u/v and save them
-    u_unique = np.ndarray([nlev,ncol],dtype=np.float64)
-    v_unique = np.ndarray([nlev,ncol],dtype=np.float64)
-    du_unique = np.ndarray([nlev,ncol,1],dtype=np.float64)
-    dv_unique = np.ndarray([nlev,ncol,1],dtype=np.float64)
-    icol = 0
-    for ie in range(nelemd):
-        for n in range (num_unique_pts[ie]):
-            ip = unique_i[ie,n]
-            jp = unique_j[ie,n]
-            u_unique[:,icol] = u[ie,ip,jp,:]
-            v_unique[:,icol] = v[ie,ip,jp,:]
-            du_unique[:,icol,0] = du[ie,ip,jp,:,0]
-            dv_unique[:,icol,0] = dv[ie,ip,jp,:,0]
-            #  print(f"u[{icol},:]: {u_unique[:,icol]}")
-            icol += 1
+    # Retrieve sacado sensitivity
+    dudp_fad = np.ndarray([nelemd,ngp,ngp,nlev,1],dtype=np.float64)
+    dvdp_fad = np.ndarray([nelemd,ngp,ngp,nlev,1],dtype=np.float64)
+    pyhommexx.get_state_var_dp_sens(dudp_fad,"u")
+    pyhommexx.get_state_var_dp_sens(dvdp_fad,"v")
 
-    u_with_time = np.expand_dims(u_unique,0)
-    v_with_time = np.expand_dims(v_unique,0)
-    du_with_time = np.expand_dims(du_unique,0)
-    dv_with_time = np.expand_dims(dv_unique,0)
+    # Run with real scalar, unperturbed and then perturbed
+    pyhommexx.run_functor(functor,rkparams,"real")
+    u0 = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    v0 = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    pyhommexx.get_state_var(u0,"u")
+    pyhommexx.get_state_var(v0,"v")
 
-    ds = xr.Dataset()
+    dudp_fd = []   # FD sensitivities
+    dvdp_fd = []
+    N = 6 # How many FD intervals
+    factors = np.logspace(0,-N, num=N+1)
+    for factor in factors:
+        du  = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+        dv  = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
 
-    ds['u'] = xr.DataArray(u_with_time[:,:,:],
-                           dims=['time', 'lev', 'ncol'],
-                           coords={'time': np.arange(1),
-                                   'lev': np.arange(nlev),
-                                   'ncol': np.arange(ncol)})
-    ds['v'] = xr.DataArray(v_with_time[:,:,:],
-                           dims=['time', 'lev', 'ncol'],
-                           coords={'time': np.arange(1),
-                                   'lev': np.arange(nlev),
-                                   'ncol': np.arange(ncol)})
-    ds['du'] = xr.DataArray(du_with_time[:,:,:],
-                            dims=['time', 'lev', 'ncol', 'nsens'],
-                            coords={'time': np.arange(1),
-                                    'lev': np.arange(nlev),
-                                    'ncol': np.arange(ncol),
-                                    'nsens': np.arange(1)})
-    ds['dv'] = xr.DataArray(dv_with_time[:,:,:],
-                            dims=['time', 'lev', 'ncol', 'nsens'],
-                            coords={'time': np.arange(1),
-                                    'lev': np.arange(nlev),
-                                    'ncol': np.arange(ncol),
-                                    'nsens': np.arange(1)})
-    ds.to_netcdf('pyhommexx.nc')
+        # Perturb initial meridional velocity with gaussian centered at lat=30N (0.5 rad), lon=0,
+        # with max_perturbation factor*perturb and decay as a gaussian with std_dev=sigma
+        pyhommexx.set_state_var(u_ref,"u","real",0)
+        pyhommexx.perturb_state_var("u",0.5,0,factor*perturb,sigma,"real")
+
+        pyhommexx.run_functor(functor,rkparams,"real")
+
+        # Get state and compute FD sens approx
+        pyhommexx.get_state_var(du,"u","real",1)
+        pyhommexx.get_state_var(dv,"v","real",1)
+
+        du -= u0
+        dv -= v0
+        du /= factor*perturb
+        dv /= factor*perturb
+        dudp_fd.append(np.copy(du))
+        dvdp_fd.append(np.copy(dv))
+
+    print(f"max_u_perturb_factor: {[float(f*perturb) for f in factors]}")
+    print(f"||DpFad(u)|| = {float(np.linalg.norm(dudp_fad))}")
+    print(f"||FD(u)|| = {[float(np.linalg.norm(du)) for du in dudp_fd]}")
+    print(f"||DpFad(u)-FD(u)|| = {[float(np.linalg.norm(dudp_fad[...,0]-du)) for du in dudp_fd]}")
+    print(f"||DpFad(v)|| = {float(np.linalg.norm(dvdp_fad))}")
+    print(f"||FD(v)|| = {[float(np.linalg.norm(dv)) for dv in dvdp_fd]}")
+    print(f"||DpFad(v)-FD(v)|| = {[float(np.linalg.norm(dvdp_fad[...,0]-dv)) for dv in dvdp_fd]}")
+
+    # Plot error
+    err_u = [float(np.linalg.norm(dudp_fad[...,0]-du)) for du in dudp_fd]
+    err_v = [float(np.linalg.norm(dvdp_fad[...,0]-dv)) for dv in dvdp_fd]
+    plt.figure(figsize=(10, 6))
+    plt.loglog(perturb*factors, err_u, label='Zonal', marker='o')
+    plt.loglog(perturb*factors, err_v, label='Meridional', marker='s')
+
+    plt.gca().invert_xaxis()
+
+    # Add labels and title
+    plt.xlabel('Perturb')
+    plt.ylabel('||FAD - FD||')
+    plt.title('Zonal and Meridional winds sensitivity error')
+    plt.legend()
+
+    # Show the plot
+    plt.grid()
+    plt.show()
 
     # Finalize hommexx
     pyhommexx.finalize()
 
 ###############################################################################
 if (__name__ == "__main__"):
-    run_theta(**vars(parse_command_line(sys.argv)))
+    run_functor(**vars(parse_command_line(sys.argv)))
