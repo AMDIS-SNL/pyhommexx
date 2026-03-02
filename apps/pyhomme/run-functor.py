@@ -7,7 +7,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # IMPORTANT: edit this path to point to the folder where you built pyhommexx
-PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/gcc/serial/pyhommexx/src/theta-l_kokkos/pyhommexx/"
+PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/gcc/pyhommexx/src/theta-l_kokkos/pyhommexx/"
 sys.path.append(PYHOMMEXX_LIB_PATH)
 import pyhommexx
 
@@ -42,6 +42,27 @@ EXAMPLES:
                         help="Time step to use when running the functor")
 
     return parser.parse_args(args[1:])
+
+
+###############################################################################
+def distance(lat, lon, lat0, lon0, rearth):
+###############################################################################
+    dx = lat - lat0
+    dy = np.fmod(lon - lon0 + np.pi, 2 * np.pi) - np.pi
+
+    a = np.sin(dx / 2) ** 2 + np.cos(lat) * np.cos(lat0) * (np.sin(dy / 2) ** 2)
+    c = 2 * np.arcsin(np.sqrt(a))
+
+    return rearth * c
+
+###############################################################################
+def gaussian_perturb(delta,pmax,sigma,lat,lon,lat0,lon0,rearth):
+###############################################################################
+    for ie in range(delta.shape[0]):
+        for ip in range(delta.shape[1]):
+            for jp in range(delta.shape[2]):
+                d = distance(lat[ie,ip,jp],lon[ie,ip,jp],lat0,lon0,rearth) / 1000
+                delta[ie,ip,jp,...] = pmax*np.exp(-np.power(d, 2) / (2 * np.power(sigma, 2)))
 
 ###############################################################################
 def run_functor(namelist,perturb,sigma,functor,dt):
@@ -91,6 +112,21 @@ def run_functor(namelist,perturb,sigma,functor,dt):
         pyhommexx.finalize()
         return
 
+    lat = np.ndarray([nelemd,ngp,ngp],dtype=np.float64)
+    lon = np.ndarray([nelemd,ngp,ngp],dtype=np.float64)
+    pyhommexx.get_dyn_latlon(lat,lon)
+    rearth = pyhommexx.get_phys_constant('rearth')
+
+    # Vector used for perturbations
+    lat0 = 0.5 # radians
+    lon0 = 0   # radians
+    delta = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
+    gaussian_perturb(delta,perturb,sigma,lat,lon,lat0,lon0,rearth)
+
+    #  print(delta)
+    #  print (f"max(delta): {np.max(delta)}")
+    #  pyhommexx.finalize()
+    #  return
     # Init dp3d to ref values, and copy real state into dpfad state
     pyhommexx.init_dp3d_from_ps()
     pyhommexx.copy_state("real","dpfad")
@@ -101,7 +137,7 @@ def run_functor(namelist,perturb,sigma,functor,dt):
 
     # Run functor with dpfad first, and with different real perturb later, to check derivs
     rkparams = {'dt' : dt}
-    pyhommexx.perturb_state_var("u",0.5,0,0,sigma,"dpfad") # perturb=0, but this inits Fad derivs
+    pyhommexx.perturb_state_var("u",delta,0,"dpfad") # perturb=0, but this inits Fad derivs
     pyhommexx.run_functor(functor,rkparams,"dpfad")
 
     # Retrieve sacado sensitivity
@@ -119,7 +155,7 @@ def run_functor(namelist,perturb,sigma,functor,dt):
 
     dudp_fd = []   # FD sensitivities
     dvdp_fd = []
-    N = 6 # How many FD intervals
+    N = 8 # How many FD intervals
     factors = np.logspace(0,-N, num=N+1)
     for factor in factors:
         du  = np.ndarray([nelemd,ngp,ngp,nlev],dtype=np.float64)
@@ -128,7 +164,8 @@ def run_functor(namelist,perturb,sigma,functor,dt):
         # Perturb initial meridional velocity with gaussian centered at lat=30N (0.5 rad), lon=0,
         # with max_perturbation factor*perturb and decay as a gaussian with std_dev=sigma
         pyhommexx.set_state_var(u_ref,"u","real",0)
-        pyhommexx.perturb_state_var("u",0.5,0,factor*perturb,sigma,"real")
+        print(np.max(factor*delta))
+        pyhommexx.perturb_state_var("u",delta,factor*perturb,"real")
 
         pyhommexx.run_functor(functor,rkparams,"real")
 
