@@ -1,0 +1,15 @@
+Cartopy
+contourpy
+jax[cuda12]
+matplotlib
+mpi4py
+nanobind
+numpy
+pandas
+scipy
+xarray
+netcdf4
+--extra-index-url https://download.pytorch.org/whl/cu124
+torch
+torchvision
+torchaudio
