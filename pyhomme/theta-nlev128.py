@@ -7,7 +7,7 @@ import numpy as np
 import xarray as xr
 
 # IMPORTANT: edit this path to point to the folder where you built pyhommexx
-PYHOMMEXX_LIB_PATH="/home/lbertag/workdir/e3sm/e3sm-homme-build/amdis/gcc/serial/release/src/theta-l_kokkos/pyhommexx/"
+PYHOMMEXX_LIB_PATH="/gpfs/pabosle/build-e3sm-amdis/src/theta-l_kokkos/pyhommexx/"
 sys.path.append(PYHOMMEXX_LIB_PATH)
 import pyhommexx
 
