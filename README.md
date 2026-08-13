@@ -1,8 +1,11 @@
 # AMDIS Environment Setup 
 
-
+## At every login:
 - Load the modules:  `. /projects/amdis/env/amdis-modules.sh`.
 - Define a scratch directory: `export SCRATCH=/gpfs/pabosle`
+
+
+## Once per platform
 - Create a virtual environment in your scratch space:
   ```
   python -m venv $SCRATCH/amdis-venv
