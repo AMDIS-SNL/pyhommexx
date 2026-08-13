@@ -25,7 +25,7 @@ The script mostly works to set up a CPU build on a cee-compute server.
 
 Build it: `cmake --build $SCRATCH/build-e3sm-amdis -j 48`.
 
-### Running HommeXX from python
+### Check the build
 
 At this point, HommeXX (the C++ side) should be working.  Let's make sure:
 
