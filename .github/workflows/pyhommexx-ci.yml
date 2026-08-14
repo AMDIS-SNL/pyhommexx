@@ -7,8 +7,9 @@
 #   - pyhommexx holds only the driver scripts (pyhomme/) and env recipe (env/);
 #     the buildable C++/Fortran source lives in AMDIS-SNL/E3SM (branch `master`),
 #     which this workflow checks out into ./e3sm as a separate step.
-#   - push/PR triggers here fire on pyhommexx changes; upstream E3SM/HommeXX 
-#    changes are caught by the nightly `schedule` (and on-demand via workflow_dispatch).
+#   - Because a workflow can only path-filter its OWN repo, push/PR triggers
+#     here fire on pyhommexx changes; upstream E3SM/HommeXX changes are caught
+#     by the nightly `schedule` (and on-demand via workflow_dispatch).
 #
 # This is a CPU (Serial + OpenMP) translation of env/configure-pyhommexx.sh:
 #   - the SNL cluster uses environment modules + prebuilt TPLs under
@@ -86,7 +87,9 @@ jobs:
     steps:
       # ---------------------------------------------------------------------
       # 1. Checkouts. This repo (pyhommexx) at the workspace root; the E3SM
-      #    source into ./e3sm. 
+      #    source into ./e3sm. E3SM is public, so no token is needed; if it is
+      #    ever made private, add `token: ${{ secrets.E3SM_PAT }}` to the E3SM
+      #    checkout below.
       # ---------------------------------------------------------------------
       - name: Checkout pyhommexx (this repo, main)
         uses: actions/checkout@v4
@@ -106,19 +109,37 @@ jobs:
         working-directory: ${{ env.E3SM_SRC }}
         run: |
           set -euxo pipefail
-          # E3SM's .gitmodules uses git@ SSH URLs the runner cannot auth;
-          # rewrite SSH -> HTTPS so the token can fetch public deps.
+          # E3SM (and EKAT's nested extern/kokkos) pin git@ SSH URLs the runner
+          # cannot auth. A global `insteadOf` rewrite is UNRELIABLE for nested
+          # submodule clones (it still used the raw git@ URL), so rewrite the
+          # URLs in every .gitmodules directly and `submodule sync` them into
+          # .git/config before updating. This is deterministic and does not
+          # depend on transport-time rewrite resolution. Keep the global rewrite
+          # as a harmless backstop.
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
-          # EKAT is added via add_subdirectory(../../externals/ekat) and vendors
-          # Kokkos as its own submodule -> must init EKAT *recursively*.
-          git submodule update --init --recursive --depth 1 externals/ekat
-          # PIO is ON by default in components/homme/CMakeLists.txt; scorpio +
-          # scorpio_classic + cime (genf90, timing) are reached via the committed
-          # symlinks in components/homme/utils/.
-          git submodule update --init --depth 1 externals/scorpio
-          git submodule update --init --depth 1 externals/scorpio_classic
-          git submodule update --init --depth 1 cime
+
+          rewrite_all() {
+            # Rewrite every .gitmodules currently on disk, then propagate to config.
+            find . -name .gitmodules -exec \
+              sed -i 's#git@github.com:#https://github.com/#g' {} +
+            git submodule sync --recursive
+          }
+
+          # Round 1: top-level .gitmodules only exists yet. Rewrite it, then init
+          # ONLY what HommeXX needs (not all 25 E3SM submodules), non-recursively.
+          #   - EKAT: added via add_subdirectory(../../externals/ekat), vendors Kokkos.
+          #   - scorpio/scorpio_classic + cime (genf90, timing): PIO is ON by default
+          #     and reached via committed symlinks in components/homme/utils/.
+          rewrite_all
+          git submodule update --init --depth 1 \
+            externals/ekat externals/scorpio externals/scorpio_classic cime
+
+          # Round 2: now that the first level is checked out, EKAT's own
+          # .gitmodules (extern/kokkos, also git@) is present -> rewrite it too,
+          # then recursively pull the nested deps (Kokkos) over HTTPS.
+          rewrite_all
+          git submodule update --init --recursive --depth 1 \
+            externals/ekat externals/scorpio externals/scorpio_classic cime
 
       # ---------------------------------------------------------------------
       # 2. Toolchain from apt (replaces amdis-modules.sh).
