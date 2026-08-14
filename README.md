@@ -1,5 +1,7 @@
 # PyHomme: a mini app to run hommexx from python
 
+[![CI](https://github.com/AMDIS-SNL/pyhommexx/actions/workflows/pyhommexx-ci.yml/badge.svg?branch=main)](https://github.com/AMDIS-SNL/pyhommexx/actions/workflows/pyhommexx-ci.yml)
+
 This mini app shows how to use the newly developed pyhommexx library
 to call hommexx from python. It is a very small example, which does
 very little, but it serves as a starting point.
