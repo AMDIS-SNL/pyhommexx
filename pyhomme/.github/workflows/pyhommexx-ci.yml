@@ -1,0 +1,254 @@
+# .github/workflows/pyhommexx-phase0.yml
+#
+# CI: reproduce the AMDIS pyhommexx build on a stock GitHub-hosted
+# runner and run the sacado unit-test gate.
+#
+# This is a CPU (Serial + OpenMP) translation of env/configure-pyhommexx.sh:
+#   - the SNL cluster uses environment modules + prebuilt TPLs under
+#     /projects/amdis; 
+# GitHub runner
+#   - install the toolchain from apt and build/cache Trilinos-Sacado from source.
+#   - CUDA is OFF here (no GPU on GitHub-hosted runners).
+#   - NetCDF-Fortran comes from apt (libnetcdff-dev) instead of a source
+#     build, since Ubuntu ships it (the cluster built it from source only
+#     because its modules did not provide it).
+#
+
+name: pyhommexx-ci0
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "components/homme/src/**"
+      - "components/homme/CMakeLists.txt"
+      - "externals/ekat/**"
+      - ".github/workflows/pyhommexx-phase0.yml"
+  pull_request:
+    paths:
+      - "components/homme/src/**"
+      - "components/homme/CMakeLists.txt"
+      - ".github/workflows/pyhommexx-phase0.yml"
+  workflow_dispatch:
+    inputs:
+      build_type:
+        description: "CMAKE_BUILD_TYPE for HommeXX"
+        type: choice
+        default: RelWithDebInfo   # DEBUG matches the cluster script but is much slower to compile+run
+        options: [RelWithDebInfo, DEBUG, Release]
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # --- versions ------------------------------------------------------------
+  TRILINOS_TAG: trilinos-release-16-2-0        # matches env/README.md (Sacado 16.2)
+  NANOBIND_VERSION: "2.11.0"                    # from env/requirements.lock.txt
+  CMAKE_VERSION: "3.31.6"                       # from amdis-modules.sh
+  # --- paths ---------------------------------------------------------------
+  TRILINOS_SRC: ${{ github.workspace }}/_deps/trilinos-src
+  TRILINOS_BUILD: ${{ github.workspace }}/_deps/trilinos-build
+  TRILINOS_INSTALL: ${{ github.workspace }}/_deps/trilinos-install
+  HOMME_SRC: ${{ github.workspace }}/components/homme
+  HOMME_BUILD: ${{ github.workspace }}/_build-e3sm-amdis
+  # --- MPI on a small runner ----------------------------------------------
+  OMPI_MCA_rmaps_base_oversubscribe: "1"       # 2-4 cores; let unit tests spawn ranks
+  OMPI_CC: gcc-12                              # pin OpenMPI wrappers to the gcc 12 toolchain
+  OMPI_CXX: g++-12
+  OMPI_FC: gfortran-12
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      # ---------------------------------------------------------------------
+      # 1. Source checkout (no submodules yet: .gitmodules uses git@ SSH URLs
+      #    that the runner cannot auth, so we rewrite + init selectively).
+      # ---------------------------------------------------------------------
+      - name: Checkout E3SM (no submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+          fetch-depth: 1
+
+      - name: Init only the submodules HommeXX needs
+        run: |
+          set -euxo pipefail
+          # Rewrite SSH -> HTTPS so the runner's token can fetch public deps.
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
+          # EKAT is added via add_subdirectory(../../externals/ekat) and vendors
+          # Kokkos as its own submodule -> must init EKAT *recursively*.
+          git submodule update --init --recursive --depth 1 externals/ekat
+          # PIO is ON by default in components/homme/CMakeLists.txt; scorpio +
+          # scorpio_classic + cime (genf90, timing) are reached via the committed
+          # symlinks in components/homme/utils/.
+          git submodule update --init --depth 1 externals/scorpio
+          git submodule update --init --depth 1 externals/scorpio_classic
+          git submodule update --init --depth 1 cime
+
+      # ---------------------------------------------------------------------
+      # 2. Toolchain from apt (replaces amdis-modules.sh).
+      #    gcc/gfortran 12 + OpenMPI 4.1.x + HDF5 + NetCDF-C/Fortran + LAPACK.
+      # ---------------------------------------------------------------------
+      - name: Install system toolchain
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            gcc-12 g++-12 gfortran-12 \
+            libopenmpi-dev openmpi-bin \
+            libhdf5-openmpi-dev \
+            libnetcdf-dev libnetcdff-dev \
+            libblas-dev liblapack-dev \
+            ninja-build
+          # Make the pinned gcc the default cc/c++/gfortran for any non-MPI probe.
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-12 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-12 100
+          sudo update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-12 100
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install Python build/runtime deps 
+        run: |
+          set -euxo pipefail
+          # needs nanobind (configure-time: `python -m nanobind --cmake_dir`)
+          # plus numpy/mpi4py for the smoke import. 
+          # torch/jax/cartopy from requirements.txt are CUDA wheels irrelevant to 
+          # the first attempt at CI.
+          python -m pip install --upgrade pip
+          python -m pip install "cmake==${CMAKE_VERSION}" "nanobind==${NANOBIND_VERSION}" numpy mpi4py
+          echo "nanobind cmake dir: $(python -m nanobind --cmake_dir)"
+          # confirm pip-installed cmake is on PATH, not system cmake
+          echo "cmake on PATH: $(which cmake)"
+          cmake --version
+
+      # ---------------------------------------------------------------------
+      # 3. Trilinos / Sacado (Sacado-only, from source) with caching.
+      #    This is the long pole; cache keyed on the release tag so it is
+      #    built once and restored thereafter.
+      # ---------------------------------------------------------------------
+      - name: Cache Trilinos-Sacado install
+        id: cache-trilinos
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.TRILINOS_INSTALL }}
+          key: trilinos-${{ env.TRILINOS_TAG }}-ubuntu24-gcc12-${{ env.CMAKE_VERSION }}
+
+      - name: Build Trilinos-Sacado (cache miss only)
+        if: steps.cache-trilinos.outputs.cache-hit != 'true'
+        run: |
+          set -euxo pipefail
+          mkdir -p "$(dirname "$TRILINOS_SRC")"
+          curl -sSL \
+            "https://github.com/trilinos/Trilinos/archive/refs/tags/${TRILINOS_TAG}.tar.gz" \
+            -o /tmp/trilinos.tar.gz
+          mkdir -p "$TRILINOS_SRC"
+          tar -xzf /tmp/trilinos.tar.gz -C "$TRILINOS_SRC" --strip-components=1
+          # Mirrors env/configure-trilinos.sh (Sacado-only, MPI, C++17, OpenMP).
+          cmake -B "$TRILINOS_BUILD" -S "$TRILINOS_SRC" -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DCMAKE_INSTALL_PREFIX="$TRILINOS_INSTALL" \
+            -DTPL_ENABLE_MPI=ON \
+            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_C_COMPILER=mpicc \
+            -DCMAKE_CXX_COMPILER=mpicxx \
+            -DTrilinos_ENABLE_Fortran=OFF \
+            -DTrilinos_ENABLE_OpenMP=ON \
+            -DTrilinos_ENABLE_ALL_PACKAGES=OFF \
+            -DTrilinos_ENABLE_ALL_OPTIONAL_PACKAGES=OFF \
+            -DTrilinos_ENABLE_Sacado=ON \
+            -DTrilinos_ENABLE_TESTS=OFF
+          cmake --build "$TRILINOS_BUILD" --parallel "$(nproc)"
+          cmake --install "$TRILINOS_BUILD"
+
+      # ---------------------------------------------------------------------
+      # 4. Configure HommeXX / pyhommexx.
+      #    CPU translation of env/configure-pyhommexx.sh: CUDA OFF, Serial +
+      #    OpenMP ON, FAD types ON, EXECS OFF to keep the build bounded (the
+      #    sacado unit tests and the pyhommexx module are still built).
+      # ---------------------------------------------------------------------
+      - name: Configure HommeXX (pyhommexx, CPU)
+        run: |
+          set -euxo pipefail
+          NF_PREFIX="$(nf-config --prefix)"
+          NC_PREFIX="$(nc-config --prefix)"
+          cmake -B "$HOMME_BUILD" -S "$HOMME_SRC" \
+            -DCMAKE_BUILD_TYPE=${{ github.event.inputs.build_type || 'RelWithDebInfo' }} \
+            -DCMAKE_C_COMPILER=mpicc \
+            -DCMAKE_CXX_COMPILER=mpicxx \
+            -DCMAKE_Fortran_COMPILER=mpifort \
+            -DCMAKE_C_FLAGS="-fPIC" \
+            -DCMAKE_CXX_FLAGS="-fPIC" \
+            -DCMAKE_Fortran_FLAGS="-fPIC" \
+            -DCMAKE_CXX_STANDARD=17 \
+            -DHOMME_FIND_BLASLAPACK=ON \
+            -DHOMMEXX_BFB_TESTING=OFF \
+            -DHOMME_AMDIS_PROJECT=ON \
+            -DHOMME_BUILD_PYHOMMEXX=ON \
+            -DHOMME_BUILD_EXECS=OFF \
+            -DHOMMEXX_ENABLE_FAD_TYPES=ON \
+            -DTrilinos_ROOT="$TRILINOS_INSTALL" \
+            -DPYHOMMEXX_NLEV=128 \
+            -DPYHOMMEXX_QSIZE=10 \
+            -DNetCDF_C_PATH="$NC_PREFIX" \
+            -DNetCDF_Fortran_PATH="$NF_PREFIX" \
+            -DKokkos_ENABLE_CUDA=OFF \
+            -DKokkos_ENABLE_SERIAL=ON \
+            -DKokkos_ENABLE_OPENMP=ON \
+            -DKokkos_ARCH_NATIVE=ON \
+            -DPython_EXECUTABLE="$(which python)"
+
+      - name: Build pyhommexx + sacado unit tests
+        run: |
+          set -euxo pipefail
+          cmake --build "$HOMME_BUILD" --parallel "$(nproc)"
+
+      # ---------------------------------------------------------------------
+      # 5. the sacado unit tests 
+      # ---------------------------------------------------------------------
+      - name: Run sacado unit tests
+        working-directory: ${{ env.HOMME_BUILD }}
+        run: ctest -R sacado -V --output-on-failure
+
+      # ---------------------------------------------------------------------
+      # 6. Smoke test: the module imports and initialises. Non-fatal for now
+      #    (it needs the runtime namelist + vcoord files); flip to a hard
+      #    check once you wire those in.
+      # ---------------------------------------------------------------------
+      - name: Smoke-import pyhommexx
+        continue-on-error: true
+        run: |
+          set -euxo pipefail
+          PYHOMMEXX_DIR="$HOMME_BUILD/src/theta-l_kokkos/pyhommexx"
+          ls -l "$PYHOMMEXX_DIR"/pyhommexx*.so
+          PYTHONPATH="$PYHOMMEXX_DIR" python - <<'PY'
+          import pyhommexx
+          print("pyhommexx imported OK:", [s for s in dir(pyhommexx) if not s.startswith("_")])
+          PY
+
+      # ---------------------------------------------------------------------
+      # 7. On failure, keep the CMake logs for debugging.
+      # ---------------------------------------------------------------------
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cmake-logs
+          path: |
+            ${{ env.HOMME_BUILD }}/CMakeCache.txt
+            ${{ env.HOMME_BUILD }}/CMakeFiles/CMakeError.log
+            ${{ env.HOMME_BUILD }}/CMakeFiles/CMakeOutput.log
+            ${{ env.HOMME_BUILD }}/Testing/**/*.log
+          retention-days: 7
+          if-no-files-found: ignore
