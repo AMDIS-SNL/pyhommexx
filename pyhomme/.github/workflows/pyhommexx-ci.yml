@@ -1,34 +1,42 @@
-# .github/workflows/pyhommexx-phase0.yml
+# .github/workflows/pyhommexx-ci.yml
 #
-# CI: reproduce the AMDIS pyhommexx build on a stock GitHub-hosted
-# runner and run the sacado unit-test gate.
+# CI: reproduce the AMDIS pyhommexx build on a stock GitHub-hosted runner and
+# run the sacado unit-test gate.
+#
+# WHERE THIS LIVES: the AMDIS-SNL/pyhommexx repo (branch `main`), NOT E3SM.
+#   - pyhommexx holds only the driver scripts (pyhomme/) and env recipe (env/);
+#     the buildable C++/Fortran source lives in AMDIS-SNL/E3SM (branch `master`),
+#     which this workflow checks out into ./e3sm as a separate step.
+#   - push/PR triggers here fire on pyhommexx changes; upstream E3SM/HommeXX 
+#    changes are caught by the nightly `schedule` (and on-demand via workflow_dispatch).
 #
 # This is a CPU (Serial + OpenMP) translation of env/configure-pyhommexx.sh:
 #   - the SNL cluster uses environment modules + prebuilt TPLs under
-#     /projects/amdis; 
-# GitHub runner
-#   - install the toolchain from apt and build/cache Trilinos-Sacado from source.
+#     /projects/amdis; a GitHub runner has neither, so we install the toolchain
+#     from apt and build/cache Trilinos-Sacado from source.
 #   - CUDA is OFF here (no GPU on GitHub-hosted runners).
-#   - NetCDF-Fortran comes from apt (libnetcdff-dev) instead of a source
-#     build, since Ubuntu ships it (the cluster built it from source only
-#     because its modules did not provide it).
-#
+#   - NetCDF-Fortran comes from apt (libnetcdff-dev) instead of a source build,
+#     since Ubuntu ships it (the cluster built it from source only because its
+#     modules did not provide it).
 
 name: pyhommexx-ci0
 
 on:
   push:
-    branches: [master]
+    branches: [main]
     paths:
-      - "components/homme/src/**"
-      - "components/homme/CMakeLists.txt"
-      - "externals/ekat/**"
-      - ".github/workflows/pyhommexx-phase0.yml"
+      - "pyhomme/**"
+      - "env/**"
+      - ".github/workflows/pyhommexx-ci.yml"
   pull_request:
     paths:
-      - "components/homme/src/**"
-      - "components/homme/CMakeLists.txt"
-      - ".github/workflows/pyhommexx-phase0.yml"
+      - "pyhomme/**"
+      - "env/**"
+      - ".github/workflows/pyhommexx-ci.yml"
+  schedule:
+    # Nightly (07:00 UTC) to catch upstream AMDIS-SNL/E3SM drift, which the
+    # push/PR path filters above cannot see (different repo).
+    - cron: "0 7 * * *"
   workflow_dispatch:
     inputs:
       build_type:
@@ -36,6 +44,10 @@ on:
         type: choice
         default: RelWithDebInfo   # DEBUG matches the cluster script but is much slower to compile+run
         options: [RelWithDebInfo, DEBUG, Release]
+      e3sm_ref:
+        description: "AMDIS-SNL/E3SM git ref (branch/tag/SHA) to build"
+        type: string
+        default: master
 
 # Cancel superseded runs on the same ref.
 concurrency:
@@ -43,6 +55,9 @@ concurrency:
   cancel-in-progress: true
 
 env:
+  # --- upstream source -----------------------------------------------------
+  E3SM_REPO: AMDIS-SNL/E3SM
+  E3SM_REF: ${{ github.event.inputs.e3sm_ref || 'master' }}   # E3SM uses `master`; this repo uses `main`
   # --- versions ------------------------------------------------------------
   TRILINOS_TAG: trilinos-release-16-2-0        # matches env/README.md (Sacado 16.2)
   NANOBIND_VERSION: "2.11.0"                    # from env/requirements.lock.txt
@@ -51,7 +66,8 @@ env:
   TRILINOS_SRC: ${{ github.workspace }}/_deps/trilinos-src
   TRILINOS_BUILD: ${{ github.workspace }}/_deps/trilinos-build
   TRILINOS_INSTALL: ${{ github.workspace }}/_deps/trilinos-install
-  HOMME_SRC: ${{ github.workspace }}/components/homme
+  E3SM_SRC: ${{ github.workspace }}/e3sm                      # E3SM checked out here (see steps)
+  HOMME_SRC: ${{ github.workspace }}/e3sm/components/homme
   HOMME_BUILD: ${{ github.workspace }}/_build-e3sm-amdis
   # --- MPI on a small runner ----------------------------------------------
   OMPI_MCA_rmaps_base_oversubscribe: "1"       # 2-4 cores; let unit tests spawn ranks
@@ -69,19 +85,29 @@ jobs:
 
     steps:
       # ---------------------------------------------------------------------
-      # 1. Source checkout (no submodules yet: .gitmodules uses git@ SSH URLs
-      #    that the runner cannot auth, so we rewrite + init selectively).
+      # 1. Checkouts. This repo (pyhommexx) at the workspace root; the E3SM
+      #    source into ./e3sm. 
       # ---------------------------------------------------------------------
-      - name: Checkout E3SM (no submodules)
+      - name: Checkout pyhommexx (this repo, main)
         uses: actions/checkout@v4
         with:
+          fetch-depth: 1
+
+      - name: Checkout E3SM source (master, no submodules yet)
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.E3SM_REPO }}
+          ref: ${{ env.E3SM_REF }}
+          path: e3sm
           submodules: false
           fetch-depth: 1
 
-      - name: Init only the submodules HommeXX needs
+      - name: Init only the E3SM submodules HommeXX needs
+        working-directory: ${{ env.E3SM_SRC }}
         run: |
           set -euxo pipefail
-          # Rewrite SSH -> HTTPS so the runner's token can fetch public deps.
+          # E3SM's .gitmodules uses git@ SSH URLs the runner cannot auth;
+          # rewrite SSH -> HTTPS so the token can fetch public deps.
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git config --global url."https://github.com/".insteadOf "ssh://git@github.com/"
           # EKAT is added via add_subdirectory(../../externals/ekat) and vendors
@@ -119,12 +145,12 @@ jobs:
         with:
           python-version: "3.13"
 
-      - name: Install Python build/runtime deps 
+      - name: Install Python build/runtime deps
         run: |
           set -euxo pipefail
           # needs nanobind (configure-time: `python -m nanobind --cmake_dir`)
-          # plus numpy/mpi4py for the smoke import. 
-          # torch/jax/cartopy from requirements.txt are CUDA wheels irrelevant to 
+          # plus numpy/mpi4py for the smoke import.
+          # torch/jax/cartopy from requirements.txt are CUDA wheels irrelevant to
           # the first attempt at CI.
           python -m pip install --upgrade pip
           python -m pip install "cmake==${CMAKE_VERSION}" "nanobind==${NANOBIND_VERSION}" numpy mpi4py
@@ -215,16 +241,17 @@ jobs:
           cmake --build "$HOMME_BUILD" --parallel "$(nproc)"
 
       # ---------------------------------------------------------------------
-      # 5. the sacado unit tests 
+      # 5. the sacado unit tests
       # ---------------------------------------------------------------------
       - name: Run sacado unit tests
         working-directory: ${{ env.HOMME_BUILD }}
         run: ctest -R sacado -V --output-on-failure
 
       # ---------------------------------------------------------------------
-      # 6. Smoke test: the module imports and initialises. Non-fatal for now
-      #    (it needs the runtime namelist + vcoord files); flip to a hard
-      #    check once you wire those in.
+      # 6. Smoke test: the module imports and initialises. Non-fatal for now.
+      #    NOTE: the runtime namelist + vcoord files now live in THIS repo at
+      #    pyhomme/namelist.nl and pyhomme/vcoord/, so this can be promoted to
+      #    a real one-step forward() gate without staging extra inputs.
       # ---------------------------------------------------------------------
       - name: Smoke-import pyhommexx
         continue-on-error: true
