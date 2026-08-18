@@ -140,7 +140,7 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | A2 | Fix `env/README.md`: venv created `amdis-venv`, activated `amdis-env`; `python -m install` → `python -m pip install` | S | Done |
 | A3 | `Trilinos_ENABLE_ROL=ON` + PyROL in `configure-trilinos.sh`. Source build; no PyPI distribution | M | Deferred — see §2; not required for M0 |
 | A4 | Pin CI to a known-good E3SM SHA instead of floating `master` | S | Won't do — we're the only consumer of this fork's `master`; pinning buys no protection |
-| A5 | Promote CI smoke-import to a real `forward()` gate — `continue-on-error: true` today | S | To-do |
+| A5 | Promote CI smoke-import to a real `forward()` gate — `continue-on-error: true` today | S | Done — CI now runs `pyhomme/demo_forcing.py` (init + `apply_dynamics_forcing` + analytic assert) as a blocking step |
 | A6 | Document CI-vs-cluster environment gap (CI: CPU/apt; cluster: modules, `/projects/amdis/tpl`, CUDA-capable) | S | Done |
 | A7 | Choose and document the `QSIZE_D` ceiling; rebuild required to change it | S | Blocked — waiting on the tracer set from the data pipeline (E-series) |
 | A8 | ne30 build + run configuration, distinct from the ne2 dev loop | M | To-do |

@@ -269,21 +269,23 @@ jobs:
         run: ctest -R sacado -V --output-on-failure
 
       # ---------------------------------------------------------------------
-      # 6. Smoke test: the module imports and initialises. Non-fatal for now.
-      #    NOTE: the runtime namelist + vcoord files now live in THIS repo at
-      #    pyhomme/namelist.nl and pyhomme/vcoord/, so this can be promoted to
-      #    a real one-step forward() gate without staging extra inputs.
+      # 6. Forward-path gate: model init + one apply_dynamics_forcing call.
+      #    pyhomme/demo_forcing.py exercises init_session -> read_params ->
+      #    model_init -> init_dp3d_from_ps -> set_forcing[_value] ->
+      #    apply_dynamics_forcing -> get_state_var and asserts
+      #    Δu == dt*fm_x to roundoff. Failure of any of those paths (missing
+      #    symbol, bad namelist, forcing kernel broken) fails CI.
+      #    Namelist + vcoord ship in this repo (pyhomme/namelist.nl,
+      #    pyhomme/vcoord/), so no external inputs are needed.
       # ---------------------------------------------------------------------
-      - name: Smoke-import pyhommexx
-        continue-on-error: true
+      - name: Forward-path gate (init + apply_dynamics_forcing)
+        working-directory: pyhomme
+        env:
+          PYHOMMEXX_LIB_PATH: ${{ env.HOMME_BUILD }}/src/theta-l_kokkos/pyhommexx
         run: |
           set -euxo pipefail
-          PYHOMMEXX_DIR="$HOMME_BUILD/src/theta-l_kokkos/pyhommexx"
-          ls -l "$PYHOMMEXX_DIR"/pyhommexx*.so
-          PYTHONPATH="$PYHOMMEXX_DIR" python - <<'PY'
-          import pyhommexx
-          print("pyhommexx imported OK:", [s for s in dir(pyhommexx) if not s.startswith("_")])
-          PY
+          ls -l "$PYHOMMEXX_LIB_PATH"/pyhommexx*.so
+          python demo_forcing.py -nml namelist.nl
 
       # ---------------------------------------------------------------------
       # 7. On failure, keep the CMake logs for debugging.
