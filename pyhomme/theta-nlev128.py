@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
 import pathlib
 import numpy as np
 import xarray as xr
 
-# IMPORTANT: edit this path to point to the folder where you built pyhommexx
-PYHOMMEXX_LIB_PATH="/gpfs/pabosle/build-e3sm-amdis/src/theta-l_kokkos/pyhommexx/"
-sys.path.append(PYHOMMEXX_LIB_PATH)
+# Point PYHOMMEXX_LIB_PATH at the build directory that contains pyhommexx.*.so
+sys.path.append(os.environ["PYHOMMEXX_LIB_PATH"])
 import pyhommexx
 
 from mpi4py import MPI
@@ -76,8 +76,8 @@ def run_theta(dt,nstep,namelist,perturb):
     pyhommexx.get_state_var(u,"u")
     pyhommexx.get_state_var(v,"v")
     if perturb>0:
-        factor = 1 +  perturb * np.random.normal(size=u.shape)
-        u *= factoperturb
+        factor = 1 + perturb * np.random.normal(size=u.shape)
+        u *= factor
         v *= factor
         pyhommexx.set_state_var(u,"u")
         pyhommexx.set_state_var(v,"v")

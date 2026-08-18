@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 
 import argparse
+import os
 import sys
 import pathlib
 import numpy as np
 import matplotlib.pyplot as plt
 
-# IMPORTANT: edit this path to point to the folder where you built pyhommexx
-PYHOMMEXX_LIB_PATH="/gpfs/pabosle/build-e3sm-amdis/src/theta-l_kokkos/pyhommexx/"
-sys.path.append(PYHOMMEXX_LIB_PATH)
+# Point PYHOMMEXX_LIB_PATH at the build directory that contains pyhommexx.*.so
+sys.path.append(os.environ["PYHOMMEXX_LIB_PATH"])
 import pyhommexx
 
 from mpi4py import MPI

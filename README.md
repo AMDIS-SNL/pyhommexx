@@ -6,6 +6,8 @@ This mini app shows how to use the newly developed pyhommexx library
 to call hommexx from python. It is a very small example, which does
 very little, but it serves as a starting point.
 
+This repository contains the Python side of our work.  The C++ side is contained within the [AMDIS-SNL E3SM fork](git@github.com:AMDIS-SNL/E3SM.git).
+
 In order to use the scripts in this folder, you must
 
 - have a python environment set up (nanobind, numpy, xarray, mpi4py, etc.) installed via pip is ok.
