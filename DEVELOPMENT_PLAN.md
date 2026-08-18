@@ -137,13 +137,13 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | ID | Task | Size | Status |
 |---|---|---|---|
 | A1 | Build reproduced; `ctest -R sacado` green | S | Done (GitHub CI) |
-| A2 | Fix `env/README.md`: venv created `amdis-venv`, activated `amdis-env`; `python -m install` → `python -m pip install` | S | |
+| A2 | Fix `env/README.md`: venv created `amdis-venv`, activated `amdis-env`; `python -m install` → `python -m pip install` | S | Done |
 | A3 | `Trilinos_ENABLE_ROL=ON` + PyROL in `configure-trilinos.sh`. Source build; no PyPI distribution | M | Deferred — see §2; not required for M0 |
-| A4 | Pin CI to a known-good E3SM SHA instead of floating `master` | S | |
-| A5 | Promote CI smoke-import to a real `forward()` gate — `continue-on-error: true` today | S | |
-| A6 | Document CI-vs-cluster environment gap (CI: CPU/apt; cluster: modules, `/projects/amdis/tpl`, CUDA-capable) | S | |
-| A7 | Choose and document the `QSIZE_D` ceiling; rebuild required to change it | S | |
-| A8 | ne30 build + run configuration, distinct from the ne2 dev loop | M | |
+| A4 | Pin CI to a known-good E3SM SHA instead of floating `master` | S | Won't do — we're the only consumer of this fork's `master`; pinning buys no protection |
+| A5 | Promote CI smoke-import to a real `forward()` gate — `continue-on-error: true` today | S | To-do |
+| A6 | Document CI-vs-cluster environment gap (CI: CPU/apt; cluster: modules, `/projects/amdis/tpl`, CUDA-capable) | S | Done |
+| A7 | Choose and document the `QSIZE_D` ceiling; rebuild required to change it | S | Blocked — waiting on the tracer set from the data pipeline (E-series) |
+| A8 | ne30 build + run configuration, distinct from the ne2 dev loop | M | To-do |
 | A9 | If F6 triggers: resolve the PyROL build toolchain conflict — `binder` needs a matched Clang/LLVM, project targets gcc/Intel + nanobind. Confirm with C++ team whether plain `Trilinos_ENABLE_ROL` (no PyROL) is separately needed first | M | Deferred — contingent on F6 |
 
 ### B. Bindings
@@ -227,7 +227,7 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 
 | Milestone | Contents | Exit criterion |
 |---|---|---|
-| M0 — Foundations | A2, A4–A8, B10, B11, §4 + §9 questions sent (A3 deferred, not required) | `ft` clarified; tracer registry designed; `ps`-drift question answered; ne30 config builds |
+| M0 — Foundations | A2, A5–A8, B10, B11, §4 + §9 questions sent (A3 deferred, not required) | `ft` clarified; tracer registry designed; `ps`-drift question answered; ne30 config builds |
 | M1 — Tendencies injectable | B1, B2, B5–B8, D1, D5, T1, T3 | A constant tendency from Python provably changes the forward solution |
 | M2 — Initialized from ERA5 | E1–E5, E7, E8, T4, T5 | ne30 runs N steps from a real ERA5 state without blowing up |
 | M3 — BPTT harness + report | P1–P4, P6, P8, B4 | Report measured at ne30, with ne2 cross-checks |
