@@ -18,16 +18,17 @@ import argparse
 import os
 import sys
 
-import torch
-
-sys.path.append(os.environ["PYHOMMEXX_LIB_PATH"])
-from mpi4py import MPI  # noqa: E402,F401  (import triggers MPI init)
-
+# Import order matters: harness.py loads pyhommexx first (which pulls in GCC 12's
+# libstdc++). torch must NOT be imported before harness — see the comment at the top of
+# harness.py for the full explanation.
 from harness import (  # noqa: E402
     STATE_NAMES, FORCING_NAMES,
     MetricsCollector, StubBackend,
     bootstrap_model, forward_step, read_state, zero_forcing,
 )
+
+import torch  # noqa: E402
+from mpi4py import MPI  # noqa: E402,F401  (import triggers MPI init)
 
 
 def parse_args(argv):

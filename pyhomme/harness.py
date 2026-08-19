@@ -36,11 +36,18 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Protocol
 
-import numpy as np
-import torch
-
+# IMPORTANT: pyhommexx MUST be imported before torch (and before numpy, defensively).
+# pyhommexx was built with GCC 12 and needs libstdc++.so.6 with GLIBCXX_3.4.29+.
+# torch (when installed against a system Python) pulls in /lib64/libstdc++.so.6, which
+# on RHEL 8 lacks that symbol. libstdc++ is forward-compat but not backward-compat, so
+# whichever gets loaded first wins; loading pyhommexx first means GCC 12's newer
+# libstdc++ (from the openmpi/gcc module's LD_LIBRARY_PATH) is in the process, and
+# torch happily runs against it.
 sys.path.append(os.environ["PYHOMMEXX_LIB_PATH"])
 import pyhommexx  # noqa: E402
+
+import numpy as np  # noqa: E402
+import torch  # noqa: E402
 
 
 # --- Field registry ---------------------------------------------------------
