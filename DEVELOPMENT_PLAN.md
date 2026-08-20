@@ -147,9 +147,9 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | A5 | Promote CI smoke-import to a real `forward()` gate — `continue-on-error: true` today | S | Done — CI now runs `pyhomme/demo_forcing.py` (init + `apply_dynamics_forcing` + analytic assert) as a blocking step |
 | A6 | Document CI-vs-cluster environment gap (CI: CPU/apt; cluster: modules, `/projects/amdis/tpl`, CUDA-capable) | S | Done |
 | A7 | Choose and document the `QSIZE_D` ceiling; rebuild required to change it | S | Blocked — waiting on the tracer set from the data pipeline (E-series) |
-| A8 | ne30 build + run configuration, distinct from the ne2 dev loop | M | To-do |
+| A8 | ne30 build + run configuration for the full-physics ERA5 workflow (nlev=128), distinct from the ne2 dev loop. Companion to but separate from A10 (nlev=30 DCMIP build) | M | To-do |
 | A9 | If F6 triggers: resolve the PyROL build toolchain conflict — `binder` needs a matched Clang/LLVM, project targets gcc/Intel + nanobind. Confirm with C++ team whether plain `Trilinos_ENABLE_ROL` (no PyROL) is separately needed first | M | Deferred — contingent on F6 |
-| A10 | Second pyhommexx build variant at `PYHOMMEXX_NLEV=30` for DCMIP-2016 dataset compatibility (E9). Kept alongside the 128-level build; ne30/nlev30 is also a cheaper dev target than ne30/nlev128 | S | To-do |
+| A10 | Second pyhommexx build variant at `PYHOMMEXX_NLEV=30` for DCMIP-2016 dataset compatibility (E9). Kept alongside the 128-level ERA5 build (A8); ne30/nlev30 is also a cheaper dev target than ne30/nlev128 | S | Done — `env/configure-pyhommexx-nlev30.sh`; build at `$SCRATCH/build-e3sm-amdis-nlev30` |
 
 ### B. Bindings
 
@@ -206,8 +206,8 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | E6 | CDS API tokens | S | Done |
 | E7 | Cache converted trajectories; do not re-run HICCUP per epoch | M | |
 | E8 | Confirm whether CI/automation needs a service-account CDS token | S | |
-| E9 | DCMIP-2016 test 1 (moist baroclinic wave) training-data run. Namelists for ne30 production and ne2/ne4 smoke, physics-step-cadence NetCDF output. Dry variant of the same case is the student config. Self-consistent dataset — same grid, same operators as pyhommexx, no interpolation shock | M | To-do |
-| E10 | Instrument DCMIP-2016 physics wrapper's ground-truth tendencies as NetCDF diagnostics. `elem%derived%FM(:,:,1:2,:)`, `%FT(:,:,:)`, `%FQ(:,:,:,1:3)` are already computed at `dcmip16_wrapper.F90:569–584`; add case dispatch in `theta-l/share/element_ops.F90` and `preqx/share/element_ops.F90` so `output_varnames1` accepts `'FM_x','FM_y','FT','FQ1','FQ2','FQ3'`. Reuses the standard interp/output pipeline | S | To-do |
+| E9 | DCMIP-2016 test 1 (moist baroclinic wave) training-data run. Namelists for ne30 production and ne2/ne4 smoke, physics-step-cadence NetCDF output. Dry variant of the same case is the student config. Self-consistent dataset — same grid, same operators as pyhommexx, no interpolation shock | M | In progress — prod run submitted on Flight 2026-08-20 (ndays=60, ~1.2 TB expected) |
+| E10 | Instrument DCMIP-2016 physics wrapper's ground-truth tendencies as NetCDF diagnostics. `elem%derived%FM(:,:,1:2,:)`, `%FT(:,:,:)`, `%FQ(:,:,:,1:3)` are already computed at `dcmip16_wrapper.F90:569–584`. Exposed on both output paths: `element_ops.F90` case dispatch (interp path) and writer blocks + schema entries in `prim_movie_mod.F90`/`common_movie_mod.F90` (native GLL path). All under `#ifdef HOMME_AMDIS_PROJECT` | S | Done — verified in ne2 smoke on Flight 2026-08-20 |
 
 ### F. Optimization
 
@@ -278,9 +278,12 @@ M3 runs parallel to M2. P1–P4 need only `forward()` and the state getters, bot
 
 ## 10. Immediate next steps
 
-1. B1 — forcing binding; gates M1.
-2. Send §4 to the C++ team: `ForcingFunctor` genericity, `JtV` signature, `Tape` capacity, limiter kink. Ask the expected merge window for `rk-adjoint-stepping`.
-3. B10 + B11 — clarify `ft`, design the tracer registry.
-4. P1 + P2 — harness with stub backward, parallel to B1, on `jw_baroclinic` ICs.
-5. A8 — ne30 configuration; needed before any P3 measurement means anything.
-6. F3 — Adam-based training loop against `forward()` (PyTorch-native optimizers first, §2), early and parallel.
+Focus: get the DCMIP-2016 bridge experiment through end-to-end. B1/B2/B5, P1/P2/P4, A5, A10, E10 are all Done. E9 prod is running on Flight.
+
+1. **Wait for E9 prod** (ne30, ndays=60) to finish; sanity-check the resulting NetCDFs (variable coverage, tendency magnitudes, no NaNs).
+2. **D2 offline arm.** `python pyhomme/train_offline.py --data '.../movies/dcmip16-t1-ne30-hifreq-*.nc' --heads fm_x,fm_y,fm_z,fvtheta`. First: confirm loss drops. Then: hyperparameter sweep, per-level normalization (D3), held-out validation split.
+3. **F3 trajectory arm.** Wire the same NN into `harness.autograd` for BPTT through `forward()`. Needs a small `TrajectoryDataset` variant on `dcmip16_data.py` yielding `(state_k, state_k+N)`.
+4. **D8 comparison.** Same NN, same dataset, both supervision strategies. Report held-out state error, gradient-signal quality, wallclock, and stability. Constrained to bindable heads (`fm_x, fm_y, fm_z, fvtheta`) until B9/B11 land.
+5. **Push `pb-dcmip16-training-test`** on both repos and open PRs.
+
+The ERA5 workflow prerequisites (B9/B11 tracer bindings, A8 nlev=128 ne30 build, C++-team items from §4 — `JtV`, `Tape`, `ForcingFunctor` genericity) remain outstanding but do not block DCMIP progress. Revisit their ordering once D8 is characterized.
