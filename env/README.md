@@ -25,6 +25,12 @@ The script mostly works to set up a CPU build on a cee-compute server.
 
 Build it: `cmake --build $SCRATCH/build-e3sm-amdis -j 48`.
 
+For the DCMIP-2016 test 1 dataset workflow (E9/E10/D8), also build the `nlev=30`
+variant with `configure-pyhommexx-nlev30.sh` — separate build in
+`$SCRATCH/build-e3sm-amdis-nlev30/`. Select at runtime via
+`export PYHOMMEXX_LIB_PATH=$SCRATCH/build-e3sm-amdis-nlev30/src/theta-l_kokkos/pyhommexx/`.
+The primary `nlev=128` build stays untouched for the ERA5 workflow.
+
 ### Check the build
 
 At this point, HommeXX (the C++ side) should be working.  Let's make sure:

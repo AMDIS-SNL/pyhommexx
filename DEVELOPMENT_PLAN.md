@@ -31,6 +31,8 @@ Hybrid forward PDE solver + ML for climate modeling: HommeXX dynamical core coup
 
 **qsize.** `PYHOMMEXX_QSIZE` sets `QSIZE_D`, the compile-time maximum; namelist `qsize` is the runtime actual. Raising the ceiling requires a rebuild, so set it generously (A7).
 
+**DCMIP-2016 bridge dataset.** Before committing NN training to ERA5, we generate a self-consistent training set from DCMIP-2016 test 1 (moist baroclinic wave with Kessler physics) at ne30 (E9). Ground truth is HOMME + Kessler running on the same grid, same operators, same vertical coordinate as the pyhommexx student — no interpolation shock (contrast with E5). The physics wrapper already computes exact per-step tendencies as `elem%derived%FM/FT/FQ` (`dcmip16_wrapper.F90:569–584`); E10 exposes them as NetCDF diagnostics. This dataset lets us evaluate the two supervision strategies (D2 offline tendency matching vs. F3 trajectory matching through `forward()`) side by side on identical data (D8), before spending compute on ERA5. It also gives an empirical read on open question 1 in §9 (mass conservation under `FQps`): the Kessler-driven ground-truth run manifests the same `ps`/`dp3d` motion the NN would.
+
 **Optimizer backend: PyTorch-native first, ROL deferred.** PyROL requires the `binder` Clang-libTooling code generator to pre-generate its pybind11 bindings — a second, Clang-specific toolchain running alongside this project's own nanobind bindings. First efforts (F3–F5) drive the differentiable `forward()` (P1) directly with `torch.optim` — Adam as the baseline, LBFGS as a quasi-Newton step up. This is not a decision to drop ROL permanently: its trust-region/Newton-CG optimizers and distributed vector support may still matter once BPTT crosses the single-node line at ne120+ (§5.3.4), which is exactly the regime M6 targets. F6 revisits PyROL if F3–F5 prove insufficient; A9 tracks the toolchain prerequisite for that path. Separately — and unconfirmed — plain `Trilinos_ENABLE_ROL` (C++ only, no PyROL/binder/pybind11) may still be worth enabling if the C++ team's adjoint work depends on it; flagged for follow-up.
 
 ---
@@ -145,6 +147,7 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | A7 | Choose and document the `QSIZE_D` ceiling; rebuild required to change it | S | Blocked — waiting on the tracer set from the data pipeline (E-series) |
 | A8 | ne30 build + run configuration, distinct from the ne2 dev loop | M | To-do |
 | A9 | If F6 triggers: resolve the PyROL build toolchain conflict — `binder` needs a matched Clang/LLVM, project targets gcc/Intel + nanobind. Confirm with C++ team whether plain `Trilinos_ENABLE_ROL` (no PyROL) is separately needed first | M | Deferred — contingent on F6 |
+| A10 | Second pyhommexx build variant at `PYHOMMEXX_NLEV=30` for DCMIP-2016 dataset compatibility (E9). Kept alongside the 128-level build; ne30/nlev30 is also a cheaper dev target than ne30/nlev128 | S | To-do |
 
 ### B. Bindings
 
@@ -186,6 +189,7 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | D4 | Stability guardrails: clipping, NaN traps, fail-fast; loss term penalizing approach-to-negative tracers (§3) | M |
 | D5 | Record column-locality as an architectural constraint (§2) | S |
 | D7 | Configurable output heads driven by the active tracer set, not a fixed architecture | M |
+| D8 | Bridging experiment on the DCMIP-2016 dataset (E9): train the same NN with (i) direct tendency matching (D2, offline) and (ii) trajectory matching (F3, BPTT through `forward()`). Report held-out state error, gradient-signal quality, wallclock, and stability. Purpose is to characterize when each strategy is preferable before committing to one on ERA5 | M |
 
 ### E. Data pipeline
 
@@ -199,6 +203,8 @@ Sizes: S ≈ days, M ≈ 1–2 weeks, L ≈ 3+ weeks.
 | E6 | CDS API tokens | S | Done |
 | E7 | Cache converted trajectories; do not re-run HICCUP per epoch | M | |
 | E8 | Confirm whether CI/automation needs a service-account CDS token | S | |
+| E9 | DCMIP-2016 test 1 (moist baroclinic wave) training-data run. Namelists for ne30 production and ne2/ne4 smoke, physics-step-cadence NetCDF output. Dry variant of the same case is the student config. Self-consistent dataset — same grid, same operators as pyhommexx, no interpolation shock | M | To-do |
+| E10 | Instrument DCMIP-2016 physics wrapper's ground-truth tendencies as NetCDF diagnostics. `elem%derived%FM(:,:,1:2,:)`, `%FT(:,:,:)`, `%FQ(:,:,:,1:3)` are already computed at `dcmip16_wrapper.F90:569–584`; add case dispatch in `theta-l/share/element_ops.F90` and `preqx/share/element_ops.F90` so `output_varnames1` accepts `'FM_x','FM_y','FT','FQ1','FQ2','FQ3'`. Reuses the standard interp/output pipeline | S | To-do |
 
 ### F. Optimization
 
