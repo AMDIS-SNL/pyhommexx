@@ -154,6 +154,31 @@ def zero_forcing(dims: ModelDims) -> dict[str, torch.Tensor]:
     }
 
 
+# --- Raw (non-autograd) subcycle -------------------------------------------
+#
+# Both _PyhommeForwardFn.forward (the torch.autograd entry point) and FDVerifier.jv
+# (used by verify_backend) share this core. Sequential calls are deterministic even
+# though the C++ side rotates time levels: RK stage 1 in ttype5/9/10 writes nm1
+# before any stage reads it, so the initial nm1 does not affect the physics — only
+# n0 (which we set explicitly on every call) does.
+
+def _raw_forward(state: dict[str, torch.Tensor],
+                 forcing: dict[str, torch.Tensor],
+                 dt: float,
+                 dims: ModelDims) -> tuple[dict[str, torch.Tensor], int, int, int]:
+    """One pyhommexx.forward(dt) with explicit state+forcing write and post-forward read.
+
+    Returns (state_np1, bytes_state_in, bytes_forcing_in, bytes_state_out). Callers
+    that don't care about the byte counts can ignore the trailing three.
+    """
+    b_s_in = write_state(state, tl=0)
+    b_f_in = write_forcing(forcing)
+    pyhommexx.forward(dt)
+    out = read_state(dims, tl=0)
+    b_s_out = sum(v.numpy().nbytes for v in out.values())
+    return out, b_s_in, b_f_in, b_s_out
+
+
 # --- Backward strategies ----------------------------------------------------
 
 class Backend(Protocol):
@@ -261,19 +286,8 @@ class _PyhommeForwardFn(torch.autograd.Function):
         ctx.save_for_backward(*tensors)
 
         t0 = time.perf_counter()
-
-        # Push state and forcing across the Python->Kokkos boundary.
-        bytes_state_in = write_state(state_in, tl=0)
-        bytes_forcing_in = write_forcing(forcing_in)
-
-        # One subcycle. Internally: apply_cam_forcing -> RK stages -> vertical remap ->
-        # LEAPFROG rotation. Afterwards, tl=0 points to what was np1.
-        pyhommexx.forward(dt)
-
-        # Pull the new state back.
-        state_out = read_state(dims, tl=0)
-        bytes_state_out = sum(v.numpy().nbytes for v in state_out.values())
-
+        state_out, bytes_state_in, bytes_forcing_in, bytes_state_out = \
+            _raw_forward(state_in, forcing_in, dt, dims)
         wall = time.perf_counter() - t0
 
         if metrics is not None:
@@ -347,3 +361,146 @@ def _validate_pytree(d: dict[str, torch.Tensor], expected: tuple[str, ...],
             raise ValueError(f"{kind}[{name}] shape {tuple(t.shape)} != expected {expected_shape}")
         if t.dtype != torch.float64:
             raise ValueError(f"{kind}[{name}] dtype {t.dtype} != torch.float64")
+
+
+# --- P4: FD adjoint-consistency verifier -----------------------------------
+#
+# Standard Taylor / adjoint-identity test for backend correctness:
+#
+#     <backend.jtv(x, cotangent), v> ≈ <cotangent, (F(x + eps*v) - F(x - eps*v)) / (2*eps)>
+#
+# where F is one pyhommexx.forward(dt) starting from (state=x_state, forcing=x_forcing).
+# For a *correct* backend the two inner products should agree to O(eps^2) (central diff)
+# or O(eps) (forward diff). For StubBackend (returns zeros) the LHS is exactly 0 while
+# the RHS is generically nonzero — so `ratio = LHS/RHS ≈ 0` is the expected pass condition
+# for stub, and `ratio ≈ 1` is the expected pass condition for any real backend.
+#
+# Cost per direction: 2 pyhommexx.forward calls (central) or 1 (forward). Cheap enough
+# to run per-backend as a spot check in CI.
+#
+# NOT a training-usable backend — verify_backend does not participate in torch.autograd.
+# It's a check you call explicitly after installing a candidate Backend.
+
+@dataclass
+class VerificationResult:
+    seed: int
+    eps: float
+    lhs: float       # <backend.jtv, v>
+    rhs: float       # <cotangent, Jv_FD>
+    residual: float  # lhs - rhs
+    ratio: float     # lhs / rhs; NaN if |rhs| below floor
+
+    def summary(self) -> str:
+        return (f"seed={self.seed}  eps={self.eps:.1e}  "
+                f"lhs={self.lhs:+.6e}  rhs={self.rhs:+.6e}  "
+                f"residual={self.residual:+.3e}  ratio={self.ratio:+.6f}")
+
+
+class FDVerifier:
+    """Directional finite-difference JVP driver used by verify_backend."""
+
+    def __init__(self, dims: ModelDims, dt: float, eps: float = 1.0e-6, central: bool = True):
+        self.dims = dims
+        self.dt = dt
+        self.eps = eps
+        self.central = central
+
+    def jv(self,
+           state: dict[str, torch.Tensor],
+           forcing: dict[str, torch.Tensor],
+           v_state: dict[str, torch.Tensor],
+           v_forcing: dict[str, torch.Tensor]) -> dict[str, torch.Tensor]:
+        """One-directional JVP: dict-shaped like state_np1."""
+        s_plus = {k: state[k] + self.eps * v_state[k] for k in state}
+        f_plus = {k: forcing[k] + self.eps * v_forcing[k] for k in forcing}
+        out_plus, *_ = _raw_forward(s_plus, f_plus, self.dt, self.dims)
+
+        if self.central:
+            s_minus = {k: state[k] - self.eps * v_state[k] for k in state}
+            f_minus = {k: forcing[k] - self.eps * v_forcing[k] for k in forcing}
+            out_minus, *_ = _raw_forward(s_minus, f_minus, self.dt, self.dims)
+            return {k: (out_plus[k] - out_minus[k]) / (2.0 * self.eps) for k in out_plus}
+
+        out_zero, *_ = _raw_forward(state, forcing, self.dt, self.dims)
+        return {k: (out_plus[k] - out_zero[k]) / self.eps for k in out_plus}
+
+
+def _random_direction(state: dict[str, torch.Tensor],
+                      forcing: dict[str, torch.Tensor],
+                      seed: int) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
+    """Random unit-norm direction in (state, forcing) space, matching pytree shapes."""
+    gen = torch.Generator().manual_seed(seed)
+    v_state = {k: torch.randn(v.shape, dtype=v.dtype, generator=gen) for k, v in state.items()}
+    v_forcing = {k: torch.randn(v.shape, dtype=v.dtype, generator=gen) for k, v in forcing.items()}
+    norm_sq = sum(t.pow(2).sum() for t in v_state.values()) \
+        + sum(t.pow(2).sum() for t in v_forcing.values())
+    norm = norm_sq.sqrt()
+    v_state = {k: t / norm for k, t in v_state.items()}
+    v_forcing = {k: t / norm for k, t in v_forcing.items()}
+    return v_state, v_forcing
+
+
+def _random_cotangent(state: dict[str, torch.Tensor], seed: int) -> dict[str, torch.Tensor]:
+    """Random unit-norm cotangent in output (state_np1) space."""
+    gen = torch.Generator().manual_seed(seed)
+    g = {k: torch.randn(v.shape, dtype=v.dtype, generator=gen) for k, v in state.items()}
+    norm_sq = sum(t.pow(2).sum() for t in g.values())
+    norm = norm_sq.sqrt()
+    return {k: t / norm for k, t in g.items()}
+
+
+def _inner_product(a: dict[str, torch.Tensor], b: dict[str, torch.Tensor]) -> torch.Tensor:
+    return sum((a[k] * b[k]).sum() for k in a)
+
+
+_RHS_FLOOR = 1.0e-30  # below this we return NaN ratio rather than dividing by zero
+
+
+def verify_backend(
+    backend: Backend,
+    state: dict[str, torch.Tensor],
+    forcing: dict[str, torch.Tensor],
+    dt: float,
+    dims: ModelDims,
+    seeds: list[int] | None = None,
+    eps: float = 1.0e-6,
+    central: bool = True,
+) -> list[VerificationResult]:
+    """Adjoint-consistency test for a Backend.
+
+    For each seed, samples a random direction v in (state, forcing) space and a random
+    cotangent g in output space, then checks:
+        lhs = <backend.jtv(state, forcing, dt, g), v>
+        rhs = <g, Jv_FD>
+    A correct backend returns lhs/rhs ≈ 1; StubBackend returns lhs/rhs ≈ 0.
+
+    Uses inputs detached from any autograd graph so this is safe to call outside a
+    torch.no_grad() block.
+    """
+    seeds = seeds if seeds is not None else [0, 1, 2]
+    state_d = {k: v.detach() for k, v in state.items()}
+    forcing_d = {k: v.detach() for k, v in forcing.items()}
+
+    verifier = FDVerifier(dims, dt, eps=eps, central=central)
+    results: list[VerificationResult] = []
+
+    for seed in seeds:
+        v_state, v_forcing = _random_direction(state_d, forcing_d, seed)
+        cotangent = _random_cotangent(state_d, seed + 1_000_000)
+
+        grad_state, grad_forcing = backend.jtv(state_d, forcing_d, dt, cotangent)
+        lhs = _inner_product(grad_state, v_state) + _inner_product(grad_forcing, v_forcing)
+
+        Jv = verifier.jv(state_d, forcing_d, v_state, v_forcing)
+        rhs = _inner_product(cotangent, Jv)
+
+        lhs_f = float(lhs)
+        rhs_f = float(rhs)
+        residual = lhs_f - rhs_f
+        ratio = lhs_f / rhs_f if abs(rhs_f) > _RHS_FLOOR else float("nan")
+
+        results.append(VerificationResult(
+            seed=seed, eps=eps, lhs=lhs_f, rhs=rhs_f, residual=residual, ratio=ratio,
+        ))
+
+    return results
