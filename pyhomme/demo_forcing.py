@@ -77,7 +77,7 @@ def check_scalar_forcing(dt, fm_x, tag):
 def main(argv):
     args = parse_args(argv)
 
-    pyhommexx.init_session(do_print_to_screen=True)
+    pyhommexx.init_session(do_print_to_screen=False)
     pyhommexx.enable_scalar_type("real")
     pyhommexx.read_params(args.namelist)
     pyhommexx.model_init()
