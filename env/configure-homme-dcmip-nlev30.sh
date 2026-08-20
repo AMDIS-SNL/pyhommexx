@@ -1,15 +1,21 @@
 #!/bin/bash
 #
 # HommeXX Fortran configure for the DCMIP-2016 test 1 training-data run (E9).
-# Builds the `theta-l-nlev30` test executable, not the pyhommexx shared lib.
+# Builds the `theta-l-nlev30-native` test executable, not the pyhommexx shared lib.
 # Sibling: configure-pyhommexx.sh (nlev=128) and configure-pyhommexx-nlev30.sh
 #
+# Why -native: USE_PIO=TRUE selects prim_movie_mod, which supports native GLL
+# output (interp_type=0 in the namelist). The plain `theta-l-nlev30` target uses
+# interp_movie_mod (interpolated-only) and would silently ignore interp_type=0.
+# QSIZE_D in test_execs/theta-l-nlev30-native/CMakeLists.txt was bumped 3 -> 6 to
+# accommodate DCMIP-2016 test 1's qsize=6 (Kessler + toy chemistry indices).
+#
 # After configure:
-#   cmake --build $BUILD_DIR -j 48 --target theta-l-nlev30
+#   cmake --build $BUILD_DIR -j 48 --target theta-l-nlev30-native
 #   cmake --install $BUILD_DIR       # stages namelists + jobscript into the build tree
 #   cd $BUILD_DIR/dcmip_tests/dcmip2016_test1_baroclinic_wave/theta-l
 #   sbatch jobscript-dcmip16-hifreq-cee.sh {smoke|prod}
-# The exec lands at $BUILD_DIR/test_execs/theta-l-nlev30/theta-l-nlev30 —
+# The exec lands at $BUILD_DIR/test_execs/theta-l-nlev30-native/theta-l-nlev30-native —
 # relative path the jobscript expects.
 # Perf note: the fork's cmake/SetCompilerFlags.cmake:114 overrides Fortran
 # CMAKE_Fortran_FLAGS_RELEASE to "-O0 -g" whenever HOMME_AMDIS_PROJECT is on.

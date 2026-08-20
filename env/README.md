@@ -25,11 +25,19 @@ The script mostly works to set up a CPU build on a cee-compute server.
 
 Build it: `cmake --build $SCRATCH/build-e3sm-amdis -j 48`.
 
-For the DCMIP-2016 test 1 dataset workflow (E9/E10/D8), also build the `nlev=30`
-variant with `configure-pyhommexx-nlev30.sh` — separate build in
-`$SCRATCH/build-e3sm-amdis-nlev30/`. Select at runtime via
-`export PYHOMMEXX_LIB_PATH=$SCRATCH/build-e3sm-amdis-nlev30/src/theta-l_kokkos/pyhommexx/`.
-The primary `nlev=128` build stays untouched for the ERA5 workflow.
+For the DCMIP-2016 test 1 dataset workflow (E9/E10/D8) there are two additional
+builds, both separate from the primary `nlev=128` pyhommexx build:
+
+- `configure-homme-dcmip-nlev30.sh` — Fortran HommeXX at nlev=30. Builds the
+  `theta-l-nlev30-native` test executable that generates the training data (E9).
+  Build dir: `$SCRATCH/build-homme-dcmip-nlev30/`. After
+  `cmake --build ... && cmake --install ...`, `cd` into the mirrored
+  `dcmip_tests/dcmip2016_test1_baroclinic_wave/theta-l/` and submit the jobscript.
+- `configure-pyhommexx-nlev30.sh` — pyhommexx shared library at nlev=30 for the
+  D8 student. Build dir: `$SCRATCH/build-e3sm-amdis-nlev30/`. Select at runtime
+  via `export PYHOMMEXX_LIB_PATH=$SCRATCH/build-e3sm-amdis-nlev30/src/theta-l_kokkos/pyhommexx/`.
+
+The primary `nlev=128` pyhommexx build stays untouched for the ERA5 workflow.
 
 ### Check the build
 
