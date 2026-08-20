@@ -12,9 +12,16 @@
 #
 # After configure:
 #   cmake --build $BUILD_DIR -j 48 --target theta-l-nlev30-native
-#   cmake --install $BUILD_DIR       # stages namelists + jobscript into the build tree
+#   cmake --install $BUILD_DIR/dcmip_tests/dcmip2016_test1_baroclinic_wave/theta-l/
 #   cd $BUILD_DIR/dcmip_tests/dcmip2016_test1_baroclinic_wave/theta-l
-#   sbatch jobscript-dcmip16-hifreq-cee.sh {smoke|prod}
+#   sbatch jobscript-dcmip16-hifreq-flight.sh {smoke|prod}
+#
+# Scoping the install to that subdirectory (rather than $BUILD_DIR) skips the
+# bundled TPLs' install rules (scorpio, cprnc, etc.) that either need admin
+# privileges or reference execs we haven't built. Only the DCMIP staging
+# install(PROGRAMS ...) rule runs — copies namelists and jobscripts alongside
+# the build's mirrored dcmip_tests/ tree.
+#
 # The exec lands at $BUILD_DIR/test_execs/theta-l-nlev30-native/theta-l-nlev30-native —
 # relative path the jobscript expects.
 # Perf note: the fork's cmake/SetCompilerFlags.cmake:114 overrides Fortran
@@ -29,6 +36,7 @@ NF_PATH=/projects/amdis/tpl
 BUILD_DIR=$SCRATCH/build-homme-dcmip-nlev30
 
 cmake -B $BUILD_DIR \
+-DCMAKE_INSTALL_PREFIX=$BUILD_DIR \
 -DCMAKE_BUILD_TYPE=RELEASE \
 -DCMAKE_CXX_COMPILER=mpicxx \
 -DCMAKE_C_COMPILER=mpicc \
