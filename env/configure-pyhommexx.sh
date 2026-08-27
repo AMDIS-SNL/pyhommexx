@@ -1,9 +1,15 @@
 SRC_DIR=/projects/amdis/e3sm-amdis/components/homme
 NC_PATH=$NETCDF_ROOT
 NF_PATH=/projects/amdis/tpl
-VENV_ROOT=$SCRATCH/amdis-env
+VENV_ROOT=${VIRTUAL_ENV:-$SCRATCH/amdis-env}
 
 BUILD_DIR=$SCRATCH/build-e3sm-amdis
+
+if [ ! -x "$VENV_ROOT/bin/python3" ]; then
+  echo "ERROR: no python3 at $VENV_ROOT/bin/python3."
+  echo "  Activate the amdis venv first, or export VIRTUAL_ENV / edit VENV_ROOT."
+  exit 1
+fi
 
 cmake -B $BUILD_DIR \
 -DCMAKE_BUILD_TYPE=DEBUG \
@@ -29,6 +35,7 @@ cmake -B $BUILD_DIR \
 -DKokkos_ENABLE_SERIAL=ON \
 -DKokkos_ENABLE_OPENMP=ON \
 -DKokkos_ARCH_NATIVE=ON \
+-DPython_EXECUTABLE=$VENV_ROOT/bin/python3 \
 -DPython_ROOT_DIR=$VENV_ROOT \
 -DPython_INCLUDE_DIRS=$VENV_ROOT/include \
 -DPython_LIBRARIES=$VENV_ROOT/lib \
