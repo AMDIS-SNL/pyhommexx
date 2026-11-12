@@ -238,7 +238,7 @@ jobs:
             -DCMAKE_C_FLAGS="-fPIC" \
             -DCMAKE_CXX_FLAGS="-fPIC" \
             -DCMAKE_Fortran_FLAGS="-fPIC" \
-            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_CXX_STANDARD=20 \
             -DHOMME_FIND_BLASLAPACK=ON \
             -DHOMMEXX_BFB_TESTING=OFF \
             -DHOMME_AMDIS_PROJECT=ON \
