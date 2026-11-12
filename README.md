@@ -40,7 +40,7 @@ They need `PYHOMMEXX_LIB_PATH` to point to the folder where pyhommexx was built,
   (run with the `dpfad` scalar type) match its adjoint (`prim_step_adj`), field by field, with the dot-product test
   `<dF*du0, lamN> == <du0, dF^T*lamN>`. It needs homme built with `-D HOMMEXX_ENABLE_FAD_TYPES:BOOL=ON`
   (and without `HOMMEXX_ENABLE_FWD_SENS`, which pyhommexx does not support), and the settings of
-  `namelist_adjoint.nl` (`nu_p=0`, `nu_top=0`, `tstep_type=10`, `limiter_option=9`, ...), which are the ones the adjoint supports.
+  `namelist_adjoint.nl` (`nu_top=0`, `tstep_type=10`, `limiter_option=9`, ...) and sets `nu_p=0` from python via `set_params`, which are the ones the adjoint supports.
 
 ## Timesaver: CEE project space
 

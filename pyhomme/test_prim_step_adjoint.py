@@ -19,8 +19,9 @@ state is just the special case lamN = dJ/dx_N: dJ/dp = <lamN, dF * du0> = <dF^T 
 
 The model is configured via namelist_adjoint.nl, which differs from namelist.nl by the settings
 the adjoint supports: qsplit=2 (2 dynamics steps per prim_step, to exercise their chaining), and
-nu_p=0 and nu_top=0 (not supported yet). It also requires time_step_type=10, limiter_option=9,
-hypervis_scaling=0, qsize>0 and Eulerian transport.
+nu_top=0 (nu_p>0 is not supported either, but homme's init requires it for a namelist: the script
+overrides it to 0 with set_params, between read_params and model_init). It also requires
+time_step_type=10, limiter_option=9, hypervis_scaling=0, qsize>0 and Eulerian transport.
 
 Requires PYHOMMEXX_LIB_PATH to point to the build dir that contains pyhommexx.*.so, and
 a build with HOMMEXX_ENABLE_FAD_TYPES=ON (and without HOMMEXX_ENABLE_FWD_SENS).
@@ -68,7 +69,9 @@ def main(argv):
     pyhommexx.enable_scalar_type("real")
     pyhommexx.enable_scalar_type("dpfad")
     pyhommexx.read_params(args.namelist)
-    pyhommexx.set_params({"alloc_sphere_coords": True})  # needed for the lat/lon used below
+    # alloc_sphere_coords: needed for the lat/lon used below.
+    # nu_p=0: the adjoint does not support nu_p>0 yet (R6), but homme's init rejects a namelist with nu_p=0
+    pyhommexx.set_params({"alloc_sphere_coords": True, "nu_p": 0.0})
     pyhommexx.model_init()
     pyhommexx.init_dp3d_from_ps()
 
