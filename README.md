@@ -29,6 +29,19 @@ you could also turn off other things so they don't get built:
   -D HOMMEXX_BFB_TESTING:BOOL=OFF                           \
   -D HOMME_BUILD_EXECS:BOOL=OFF                             \
   
+## Tests
+
+The scripts in `pyhomme/` that assert something are run by the CI (see `.github/workflows/pyhommexx-ci.yml`).
+They need `PYHOMMEXX_LIB_PATH` to point to the folder where pyhommexx was built, and must be run from `pyhomme/`
+(the namelists use relative paths for the vertical coordinate files):
+
+- `demo_forcing.py -nml namelist.nl`: applies a dynamics forcing, and checks the effect on the state.
+- `test_prim_step_adjoint.py -nml namelist_adjoint.nl`: checks that the forward sensitivities of `prim_step`
+  (run with the `dpfad` scalar type) match its adjoint (`prim_step_adj`), field by field, with the dot-product test
+  `<dF*du0, lamN> == <du0, dF^T*lamN>`. It needs homme built with `-D HOMMEXX_ENABLE_FAD_TYPES:BOOL=ON`
+  (and without `HOMMEXX_ENABLE_FWD_SENS`, which pyhommexx does not support), and the settings of
+  `namelist_adjoint.nl` (`nu_p=0`, `nu_top=0`, `tstep_type=10`, `limiter_option=9`, ...), which are the ones the adjoint supports.
+
 ## Timesaver: CEE project space
 
 The prerequisites have already been built and installed to `/projects/amdis/tpl`, using the environment setup files in this [repo's `env/` folder](https://github.com/AMDIS-SNL/pyhommexx/tree/main/env).
