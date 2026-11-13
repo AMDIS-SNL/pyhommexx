@@ -18,7 +18,7 @@ the gaps below turn out to need closing.
 | NetCDF-C | apt `libnetcdf-dev` → **4.9.2-5ubuntu4** | module `aue/netcdf-c/4.9.2-...` — matches |
 | NetCDF-Fortran | apt `libnetcdff-dev` → packaged as NetCDF-Fortran **4.5.4** (Ubuntu labels it `4.6.0+really4.5.4`) | built from source, **4.6.2**, installed to `/projects/amdis/tpl` (the cluster's modules don't ship a Fortran build at all, per `env/README.md`) |
 | CMake | pip `cmake==3.31.6` | module `aue/cmake/3.31.6` — matches |
-| Trilinos/Sacado | built from source on cache miss, tag `trilinos-release-16-2-0`, installed under the ephemeral per-run `$GITHUB_WORKSPACE/_deps` | built once by hand, same tag, installed to the shared, persistent `/projects/amdis/tpl` |
+| Trilinos/Sacado | built from source on cache miss, tag `trilinos-release-17-3-0`, installed under the ephemeral per-run `$GITHUB_WORKSPACE/_deps` | built once by hand, installed to the shared, persistent `/projects/amdis/tpl`: the install there was built from `trilinos-release-16-2-0` (C++17), and has to be rebuilt at the CI's tag (see `env/README.md`) |
 | Kokkos backend | Serial + OpenMP; `Kokkos_ENABLE_CUDA=OFF` (no GPU on hosted runners) | Serial + OpenMP; `Kokkos_ENABLE_CUDA=OFF` **in the current `configure-pyhommexx.sh`**, even though the cluster loads a CUDA module (`aue/cuda/12.4.0`) and presumably has GPU-capable nodes |
 | `Kokkos_ARCH_NATIVE` | ON, tuned to whatever CPU the GitHub runner assigns that run | ON, tuned to the cee-compute node's CPU — a "native" build from one side isn't portable to the other |
 | `CMAKE_BUILD_TYPE` | `RelWithDebInfo` by default (`DEBUG`/`Release` selectable via `workflow_dispatch`) | hardcoded `DEBUG` in `configure-pyhommexx.sh` |

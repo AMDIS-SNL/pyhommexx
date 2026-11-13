@@ -76,10 +76,16 @@ Items in this section are required to run PyHommeXX, but need to be done only on
 
 Currently installed at `/projects/amdis/tpl`.
 
+**Note:** HommeXX needs Sacado >= 17.1 (it wraps `Sacado::Fad::expm1`, which is not in 16.2/17.0), and
+Trilinos 17.x only configures with C++20 or newer (which E3SM's Kokkos 5.1 needs anyway). So Trilinos
+is `trilinos-release-17-3-0`, configured with C++20, as in the CI. The install that was in
+`/projects/amdis/tpl` when this was written was built from 16.2.0 with C++17: it has to be rebuilt as below
+(the 17.3.0 tarball is not there yet). These instructions were not run on the cluster when they were written.
+
 Assuming the modules are loaded with `. /projects/amdis/env/amdis-modules.sh`, Sacado can be built as:
 ```
 cd /projects/amdis/tpl
-tar -xf Trilinos-trilinos-release-16-2-0.tar
+tar -xf Trilinos-trilinos-release-17-3-0.tar
 cd /projects/amdis/env
 ./configure-trilinos.sh
 cmake --build $SCRATCH/build-sacado -j
@@ -88,12 +94,12 @@ cmake --install $SCRATCH/build-sacado --prefix=/projects/amdis/tpl
 
 Where `configure-trilinos.sh` is this script:
 ```
-TRILINOS_SRC=/projects/amdis/tpl/Trilinos-trilinos-release-16-2-0
+TRILINOS_SRC=/projects/amdis/tpl/Trilinos-trilinos-release-17-3-0
 
 cmake -B $SCRATCH/build-sacado \
 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 -DTPL_ENABLE_MPI=ON \
--DCMAKE_CXX_STANDARD=17 \
+-DCMAKE_CXX_STANDARD=20 \
 -DCMAKE_C_COMPILER=mpicc \
 -DCMAKE_CXX_COMPILER=mpicxx \
 -DTrilinos_ENABLE_Fortran=OFF \
