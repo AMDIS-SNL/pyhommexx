@@ -58,6 +58,8 @@ def parse_args(argv):
     p.add_argument("--variant", choices=["both", "dyn", "q"], default="both",
                    help="Which initial perturbation the forward run carries")
     p.add_argument("--adjoint", action="store_true", help="Also run the adjoint (qdp seed only)")
+    p.add_argument("--only", choices=list(FIELDS), default=None,
+                   help="Perturb only this dynamics field (with variant dyn/both)")
     p.add_argument("--fd", type=float, nargs="*", default=[],
                    help="Also compute <dqN,lamN> by central finite differences of the Real prim_step, for these eps")
     p.add_argument("--qdp-init", choices=["smooth", "random"], default="smooth")
@@ -134,6 +136,11 @@ def main(argv):
         delta = {name: 0.0 * delta[name] for name in FIELDS}
     if args.variant == "dyn":
         dq0 = 0.0 * dq0
+    if args.only is not None:
+        for name in FIELDS:
+            if name != args.only:
+                du0[name] = 0.0 * du0[name]
+                delta[name] = 0.0 * delta[name]
 
     pyhommexx.copy_state("real", "dpfad")
     for name in FIELDS:
