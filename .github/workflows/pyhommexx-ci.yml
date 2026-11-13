@@ -20,7 +20,7 @@
 #     since Ubuntu ships it (the cluster built it from source only because its
 #     modules did not provide it).
 
-name: pyhommexx-ci0
+name: pyhommexx-ci
 
 on:
   push:
