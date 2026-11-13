@@ -11,8 +11,11 @@ where
  - dF * du0 is the forward tangent: prim_step run with the 'dpfad' scalar type, whose initial
    state carries the derivative along the (random) direction du0,
  - dF^T * lamN is the adjoint: prim_step_adj, from a checkpoint of the initial state, applied to
-   a (random) seed lamN. Since the identity is linear in lamN, we check it separately for each
-   field seeded alone: if something goes wrong, this tells us which field.
+   a (random) seed lamN on all the fields at once (a single, ~2 min, adjoint run). The seed on each
+   field is scaled by 1/|duN(field)|, so that all the fields weigh the same in the sum (they differ
+   by orders of magnitude: a plain sum would be blind to the small ones).
+   With --per-field, each field is seeded alone instead (one adjoint run per field, ~7x slower): if
+   something goes wrong, this tells us which field.
 The directions du0 are chosen smooth, i.e., continuous across elements (see the comment where they are
 built): independent random values on each GLL node are not valid directions. The seeds lamN are covectors,
 and can be random on each node.
@@ -58,6 +61,8 @@ def parse_args(argv):
     p.add_argument("--seed", type=int, default=1234, help="Seed of the random numbers generator")
     p.add_argument("--rtol", type=float, default=1.0e-6,
                    help="Max relative difference between the two sides of the identity")
+    p.add_argument("--per-field", action="store_true",
+                   help="Seed one field at a time (one adjoint run per field), to tell which field is wrong")
     return p.parse_args(argv[1:])
 
 
@@ -125,7 +130,8 @@ def main(argv):
     # shared GLL nodes are duplicated in neighboring elements, and the limiter's min/max bounds are
     # reductions over those duplicates, which tie exactly. Independent random values on each copy are not
     # a direction the model can move in, and make the (piecewise-linear) limiter ambiguous: the fwd mode
-    # picks one of the tied copies, the adjoint routes to all of them, finite differences average them.
+    # takes the tangent of one of the tied copies, the adjoint routes the gradient to a single winner (with
+    # its own priority), finite differences average them: they agree if the copies carry the same tangent.
     # So the directions are smooth functions of (lat, lon, level), with random wavenumbers and phases.
     def smooth_field(nk, m):
         kk = (np.arange(nk) / nk)[None, None, None, :]
@@ -156,22 +162,30 @@ def main(argv):
     pyhommexx.get_qdp_dp_sens(arr, slot_out)
     duN["qdp"] = arr[..., 0].copy()
 
-    # ===== Adjoint: prim_step_adj, seeding one field at a time ===== #
-    print("running prim_step_adj (one seeded field at a time)...", flush=True)
+    # ===== Adjoint: prim_step_adj ===== #
+    targets = FIELDS + ("qdp",)
+    # The seeds live on groups of fields: all the fields at once (default) or one field at a time.
+    # Each field's seed is scaled by 1/|duN|, so that all the fields weigh the same in <duN, lamN>.
+    groups = [(t,) for t in targets] if args.per_field else [targets]
+    print(f"running prim_step_adj ({'one seeded field at a time' if args.per_field else 'all fields seeded at once'})...",
+          flush=True)
     results = []
-    for target in FIELDS + ("qdp",):
+    for group in groups:
         pyhommexx.zero_adj_state()
         pyhommexx.zero_adj_qdp()
 
-        lamN = rng.uniform(-1.0, 1.0, qshape if target == "qdp" else shape(target))
-        if target == "qdp":
-            pyhommexx.set_adj_qdp(lamN)
-        else:
-            pyhommexx.set_adj_state_var(lamN, target)
+        lamN = {}
+        for target in group:
+            nrm = np.linalg.norm(duN[target])
+            lamN[target] = rng.uniform(-1.0, 1.0, qshape if target == "qdp" else shape(target)) / (nrm if nrm > 0 else 1.0)
+            if target == "qdp":
+                pyhommexx.set_adj_qdp(lamN[target])
+            else:
+                pyhommexx.set_adj_state_var(lamN[target], target)
 
         pyhommexx.prim_step_adj(args.dt)   # in place: the adjoint state now holds lam0
 
-        # <du0, lam0>, summed over all the fields (the seed on one field affects them all)
+        # <du0, lam0>, summed over all the fields (a seed on one field affects them all)
         lhs = 0.0
         for name in FIELDS:
             lam0 = np.zeros(shape(name))
@@ -181,9 +195,9 @@ def main(argv):
         pyhommexx.get_adj_qdp(lam0_q)
         lhs += np.vdot(dq0, lam0_q)
 
-        # <duN, lamN>, only the seeded field contributes
-        rhs = np.vdot(duN[target], lamN)
-        results.append((target, lhs, rhs))
+        # <duN, lamN>, only the seeded fields contribute
+        rhs = sum(np.vdot(duN[target], lamN[target]) for target in group)
+        results.append(("all" if len(group) > 1 else group[0], lhs, rhs))
 
     # ===== Compare ===== #
     ok = True
