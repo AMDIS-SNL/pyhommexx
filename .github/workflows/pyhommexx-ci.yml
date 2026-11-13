@@ -302,8 +302,28 @@ jobs:
         env:
           PYHOMMEXX_LIB_PATH: ${{ env.HOMME_BUILD }}/src/theta-l_kokkos/pyhommexx
         run: |
-          set -euxo pipefail
-          python test_prim_step_adjoint.py -nml namelist_adjoint.nl
+          set -uxo pipefail
+          T="python debug_qdp_adjoint.py"
+          mk() { # mk <name> <sed-script>: namelist variant of namelist_adjoint.nl
+            sed -E "$2" namelist_adjoint.nl > nl_$1.nl
+          }
+          mk base 's/^$//'
+          mk nuq0 's/^( *nu_q *=).*/\1 0/'
+          mk lim8 's/^( *limiter_option *=).*/\1 8/'
+          mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
+          mk qs1 's/^( *qsplit *=).*/\1 1/'
+          grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
+          # 1. Splitting the fwd result: perturbation on dyn only / on q only / both
+          for v in dyn q both; do echo "=== fwd variant $v"; $T -nml nl_base.nl --variant $v; done
+          # 2. Adjoint, base config (also prints the pieces of <du0,lam0>)
+          echo "=== base"; $T -nml nl_base.nl --adjoint
+          # 3. Variations (adjoint vs fwd 'both')
+          echo "=== nu_q=0";           $T -nml nl_nuq0.nl --adjoint
+          echo "=== limiter 8";        $T -nml nl_lim8.nl --adjoint
+          echo "=== nu_q=0, limiter 8"; $T -nml nl_nuq0lim8.nl --adjoint
+          echo "=== random tracers";   $T -nml nl_base.nl --adjoint --qdp-init random
+          echo "=== dt=30";            $T -nml nl_base.nl --adjoint -dt 30
+          exit 0
 
       # ---------------------------------------------------------------------
       # 8. On failure, keep the CMake logs for debugging.
