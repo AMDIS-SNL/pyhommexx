@@ -176,7 +176,7 @@ def main(argv):
             qN[sign] = arr.copy()
             for name in FIELDS:
                 a = np.zeros(shape(name))
-                pyhommexx.get_state_var(a, name, "real", 0)
+                pyhommexx.get_state_var(a, name, "real", 1)  # np1, like get_state_var_dp_sens
                 xN[(name, sign)] = a.copy()
         for name in FIELDS:
             dx_fd = (xN[(name, +1.0)] - xN[(name, -1.0)]) / (2.0 * eps)
