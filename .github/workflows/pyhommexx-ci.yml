@@ -302,7 +302,7 @@ jobs:
         env:
           PYHOMMEXX_LIB_PATH: ${{ env.HOMME_BUILD }}/src/theta-l_kokkos/pyhommexx
         run: |
-          set -uxo pipefail
+          set +e; set -ux
           T="python debug_qdp_adjoint.py"
           mk() { # mk <name> <sed-script>: namelist variant of namelist_adjoint.nl
             sed -E "$2" namelist_adjoint.nl > nl_$1.nl

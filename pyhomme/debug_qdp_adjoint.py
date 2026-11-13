@@ -158,6 +158,7 @@ def main(argv):
     print(f"[fwd {args.variant}] <dqN,lamN> = {rhs:.15e}", flush=True)
     print(f"[fwd {args.variant}] |dqN|_2 = {np.linalg.norm(duN['qdp']):.15e}", flush=True)
     if not args.adjoint:
+        pyhommexx.finalize()
         return
 
     print("running prim_step_adj (qdp seed)...", flush=True)
@@ -179,6 +180,7 @@ def main(argv):
     print(f"[adj] dyn part total       = {lhs_dyn:.15e}", flush=True)
     lhs = lhs_dyn + lhs_q
     print(f"[adj] total <du0,lam0>     = {lhs:.15e}", flush=True)
+    pyhommexx.finalize()
     print(f"[cmp {args.variant}] adjoint {lhs:.15e}  fwd {rhs:.15e}  rel {abs(lhs-rhs)/max(abs(lhs),abs(rhs)):.3e}", flush=True)
 
 
