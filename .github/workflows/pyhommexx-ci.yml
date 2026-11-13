@@ -303,7 +303,7 @@ jobs:
           PYHOMMEXX_LIB_PATH: ${{ env.HOMME_BUILD }}/src/theta-l_kokkos/pyhommexx
         run: |
           set -euxo pipefail
-          python test_prim_step_adjoint.py -nml namelist_adjoint.nl
+          python test_prim_step_adjoint.py -nml namelist_adjoint.nl --per-field
 
       # ---------------------------------------------------------------------
       # 8. On failure, keep the CMake logs for debugging.
