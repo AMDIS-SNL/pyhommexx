@@ -130,7 +130,8 @@ def main(argv):
     # shared GLL nodes are duplicated in neighboring elements, and the limiter's min/max bounds are
     # reductions over those duplicates, which tie exactly. Independent random values on each copy are not
     # a direction the model can move in, and make the (piecewise-linear) limiter ambiguous: the fwd mode
-    # picks one of the tied copies, the adjoint routes to all of them, finite differences average them.
+    # takes the tangent of one of the tied copies, the adjoint routes the gradient to a single winner (with
+    # its own priority), finite differences average them: they agree if the copies carry the same tangent.
     # So the directions are smooth functions of (lat, lon, level), with random wavenumbers and phases.
     def smooth_field(nk, m):
         kk = (np.arange(nk) / nk)[None, None, None, :]
