@@ -1,0 +1,17 @@
+version: 2
+
+updates:
+
+  # Keep the actions used by the workflows up to date (e.g., the Node.js 20 deprecation warnings
+  # of actions/checkout, actions/cache, actions/setup-python, actions/upload-artifact).
+  - package-ecosystem: "github-actions"
+    directory: "/"          # covers .github/workflows
+    schedule:
+      interval: "weekly"
+    # A single PR for all the actions that have a new version (each PR runs the whole CI)
+    groups:
+      github-actions:
+        patterns:
+          - "*"
+    assignees:
+      - "bartgol"
