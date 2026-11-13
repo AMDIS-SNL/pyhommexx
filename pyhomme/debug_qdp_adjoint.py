@@ -162,6 +162,7 @@ def main(argv):
     # ===== Finite differences with the Real stack (independent check of the fwd Fad value) ===== #
     for eps in args.fd:
         qN = {}
+        xN = {}
         for sign in (+1.0, -1.0):
             sin, sout = pyhommexx.get_prim_step_qdp_slots()
             for name in FIELDS:
@@ -173,6 +174,16 @@ def main(argv):
             arr = np.zeros(qshape)
             pyhommexx.get_qdp(arr, "real", sout)
             qN[sign] = arr.copy()
+            for name in FIELDS:
+                a = np.zeros(shape(name))
+                pyhommexx.get_state_var(a, name, "real", 0)
+                xN[(name, sign)] = a.copy()
+        for name in FIELDS:
+            dx_fd = (xN[(name, +1.0)] - xN[(name, -1.0)]) / (2.0 * eps)
+            nf = np.linalg.norm(duN[name])
+            if nf > 0:
+                print(f"[fd {args.variant} eps={eps:.0e}] dyn out {name:>10}: |fwd fad|={nf:.6e} "
+                      f"rel diff fd vs fad = {np.linalg.norm(dx_fd - duN[name]) / nf:.3e}", flush=True)
         dq_fd = (qN[+1.0] - qN[-1.0]) / (2.0 * eps)
         print(f"[fd {args.variant} eps={eps:.0e}] <dqN,lamN> = {np.vdot(dq_fd, lamN):.15e}   "
               f"|dqN|_2 = {np.linalg.norm(dq_fd):.15e}   "

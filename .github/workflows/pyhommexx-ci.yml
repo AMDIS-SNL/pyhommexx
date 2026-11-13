@@ -313,16 +313,16 @@ jobs:
           mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
           mk qs1 's/^( *qsplit *=).*/\1 1/'
           grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
-          # 1. fwd Fad vs central finite differences of the Real prim_step, for each perturbation
-          #    (dyn only / q only / both), smooth tracers and noisy tracers. No adjoint here (fast).
-          for init in smooth random; do
-            for v in dyn q both; do
-              echo "=== FD: init=$init variant=$v"
-              $T -nml nl_base.nl --variant $v --qdp-init $init --fd 1e-3 1e-5 1e-7
-            done
+          # FD vs fwd Fad, on the dynamics outputs too, for a dyn-only and a q-only perturbation (noisy tracers)
+          for v in dyn q; do
+            echo "=== FD: init=random variant=$v"
+            $T -nml nl_base.nl --variant $v --qdp-init random --fd 1e-4 1e-6 1e-8 1e-10
           done
-          # 2. Is it the data (smooth tracers)? Adjoint with a few tracer fields, split of <du0,lam0>
-          echo "=== adjoint, smooth tracers, base";   $T -nml nl_base.nl --adjoint --fd 1e-5
+          # Same with qsplit=1 (a single dynamics step before the tracers)
+          for v in dyn; do
+            echo "=== FD: init=random variant=$v qsplit=1"
+            $T -nml nl_qs1.nl --variant $v --qdp-init random --fd 1e-4 1e-6 1e-8 1e-10
+          done
           exit 0
 
       # ---------------------------------------------------------------------
