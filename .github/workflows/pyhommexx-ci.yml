@@ -290,7 +290,23 @@ jobs:
           python demo_forcing.py -nml namelist.nl
 
       # ---------------------------------------------------------------------
-      # 7. On failure, keep the CMake logs for debugging.
+      # 7. Adjoint gate: the fwd sensitivities of prim_step (dpfad scalar type) must match
+      #    its adjoint (prim_step_adj), via the dot-product identity
+      #      <dF*du0, lamN> == <du0, dF^T*lamN>
+      #    (see the docstring of pyhomme/test_prim_step_adjoint.py). It needs the adjoint
+      #    bindings, hence an E3SM with the prim_step adjoint (and without FWD_SENS,
+      #    which is the case of the configuration above).
+      # ---------------------------------------------------------------------
+      - name: Adjoint gate (prim_step fwd sensitivities vs adjoint)
+        working-directory: pyhomme
+        env:
+          PYHOMMEXX_LIB_PATH: ${{ env.HOMME_BUILD }}/src/theta-l_kokkos/pyhommexx
+        run: |
+          set -euxo pipefail
+          python test_prim_step_adjoint.py -nml namelist_adjoint.nl
+
+      # ---------------------------------------------------------------------
+      # 8. On failure, keep the CMake logs for debugging.
       # ---------------------------------------------------------------------
       - name: Upload build logs on failure
         if: failure()
