@@ -29,11 +29,11 @@ on:
       - "pyhomme/**"
       - "env/**"
       - ".github/workflows/pyhommexx-ci.yml"
+  # No 'paths:' filter on PRs: it is done by the 'changes' job below, so that the
+  # pyhommexx-gate job always reports a status and can be a required check.
   pull_request:
-    paths:
-      - "pyhomme/**"
-      - "env/**"
-      - ".github/workflows/pyhommexx-ci.yml"
+    types: [opened, synchronize, ready_for_review, reopened]
+  merge_group:
   schedule:
     # Nightly (07:00 UTC) to catch upstream AMDIS-SNL/E3SM drift, which the
     # push/PR path filters above cannot see (different repo).
@@ -79,7 +79,44 @@ env:
   OMPI_FC: gfortran-12
 
 jobs:
-  build-and-test:
+  changes:
+    # PRs only run the tests if relevant files changed. The filtering is done
+    # here (rather than with 'paths:' in the trigger) so that the pyhommexx-gate
+    # job always reports a status and can be used as a required check.
+    runs-on: ubuntu-24.04
+    name: changes
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run: ${{ steps.decide.outputs.run }}
+    steps:
+      - name: Detect relevant changes
+        id: filter
+        if: github.event_name == 'pull_request'
+        uses: dorny/paths-filter@v3
+        with:
+          filters: |
+            relevant:
+              - 'pyhomme/**'
+              - 'env/**'
+              - '.github/workflows/pyhommexx-ci.yml'
+      - name: Decide whether to run the tests
+        id: decide
+        run: |
+          # Nightly, manual, push and merge-queue runs always test
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            run=true
+          else
+            run=${{ steps.filter.outputs.relevant }}
+          fi
+          echo "run=${run}" >> "${GITHUB_OUTPUT}"
+          echo "Run tests: ${run}"
+
+  tests:
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    name: tests
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     defaults:
@@ -320,3 +357,28 @@ jobs:
             ${{ env.HOMME_BUILD }}/Testing/**/*.log
           retention-days: 7
           if-no-files-found: ignore
+
+  pyhommexx-gate:
+    # Single status to use as a required check (for PRs). It is green if the
+    # tests passed or if they were not needed.
+    # NOTE: keep always(). Without it, the job is skipped if a needed job fails,
+    # and a skipped required check counts as passing.
+    needs: [changes, tests]
+    if: always() && (github.event_name == 'pull_request' || github.event_name == 'merge_group')
+    runs-on: ubuntu-24.04
+    name: pyhommexx-gate
+    steps:
+      - name: Report the result
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          RUN_TESTS: ${{ needs.changes.outputs.run }}
+          TESTS_RESULT: ${{ needs.tests.result }}
+        run: |
+          echo "changes: ${CHANGES_RESULT}, run tests: ${RUN_TESTS}, tests: ${TESTS_RESULT}"
+          if [[ "${CHANGES_RESULT}" != "success" ]]; then
+            echo "Could not determine whether tests are needed"; exit 1
+          elif [[ "${RUN_TESTS}" != "true" ]]; then
+            echo "No relevant changes, tests skipped"
+          elif [[ "${TESTS_RESULT}" != "success" ]]; then
+            echo "Tests did not pass"; exit 1
+          fi
