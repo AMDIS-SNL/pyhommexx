@@ -37,8 +37,9 @@ They need `PYHOMMEXX_LIB_PATH` to point to the folder where pyhommexx was built,
 
 - `demo_forcing.py -nml namelist.nl`: applies a dynamics forcing, and checks the effect on the state.
 - `test_prim_step_adjoint.py -nml namelist_adjoint.nl`: checks that the forward sensitivities of `prim_step`
-  (run with the `dpfad` scalar type) match its adjoint (`prim_step_adj`), field by field, with the dot-product test
-  `<dF*du0, lamN> == <du0, dF^T*lamN>`. It needs homme built with `-D HOMMEXX_ENABLE_FAD_TYPES:BOOL=ON`
+  (run with the `dpfad` scalar type) match its adjoint (`prim_step_adj`), with the dot-product test
+  `<dF*du0, lamN> == <du0, dF^T*lamN>`, seeding all the fields at once (one adjoint run, ~2 minutes), or with
+  `--per-field` one field at a time (~7x slower), to tell which field is wrong. It needs homme built with `-D HOMMEXX_ENABLE_FAD_TYPES:BOOL=ON`
   (and without `HOMMEXX_ENABLE_FWD_SENS`, which pyhommexx does not support), and the settings of
   `namelist_adjoint.nl` (`nu_top=0`, `tstep_type=10`, `limiter_option=9`, ...) and sets `nu_p=0` from python via `set_params`, which are the ones the adjoint supports.
 
