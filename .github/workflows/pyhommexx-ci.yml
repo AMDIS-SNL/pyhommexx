@@ -94,7 +94,7 @@ jobs:
       - name: Detect relevant changes
         id: filter
         if: github.event_name == 'pull_request'
-        uses: dorny/paths-filter@v3
+        uses: dorny/paths-filter@v4
         with:
           filters: |
             relevant:
@@ -131,12 +131,12 @@ jobs:
       #    checkout below.
       # ---------------------------------------------------------------------
       - name: Checkout pyhommexx (this repo, main)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           fetch-depth: 1
 
       - name: Checkout E3SM source (master, no submodules yet)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: ${{ env.E3SM_REPO }}
           ref: ${{ env.E3SM_REF }}
@@ -201,7 +201,7 @@ jobs:
           sudo update-alternatives --install /usr/bin/gfortran gfortran /usr/bin/gfortran-12 100
 
       - name: Set up Python
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v7
         with:
           python-version: "3.13"
 
@@ -226,7 +226,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Cache Trilinos-Sacado install
         id: cache-trilinos
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ env.TRILINOS_INSTALL }}
           key: trilinos-${{ env.TRILINOS_TAG }}-ubuntu24-gcc12-${{ env.CMAKE_VERSION }}
@@ -347,7 +347,7 @@ jobs:
       # ---------------------------------------------------------------------
       - name: Upload build logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cmake-logs
           path: |
