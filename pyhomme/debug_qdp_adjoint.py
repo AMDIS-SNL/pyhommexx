@@ -191,6 +191,19 @@ def main(argv):
             if nf > 0:
                 print(f"[fd {args.variant} eps={eps:.0e}] dyn out {name:>10}: |fwd fad|={nf:.6e} "
                       f"rel diff fd vs fad = {np.linalg.norm(dx_fd - duN[name]) / nf:.3e}", flush=True)
+        # Do the fad run and the real run agree on the *values*? (they should, to round-off)
+        qbase = 0.5 * (qN[+1.0] + qN[-1.0])
+        qfad = np.zeros(qshape)
+        pyhommexx.get_qdp(qfad, "dpfad", slot_out)
+        print(f"[values eps={eps:.0e}] qdp: max rel |fad - real| = "
+              f"{np.max(np.abs(qfad - qbase)) / np.max(np.abs(qbase)):.3e}", flush=True)
+        for name in FIELDS:
+            xf = np.zeros(shape(name))
+            pyhommexx.get_state_var(xf, name, "dpfad", 1)
+            xb = 0.5 * (xN[(name, +1.0)] + xN[(name, -1.0)])
+            if np.max(np.abs(xb)) > 0:
+                print(f"[values eps={eps:.0e}] {name:>10}: max rel |fad - real| = "
+                      f"{np.max(np.abs(xf - xb)) / np.max(np.abs(xb)):.3e}", flush=True)
         dq_fd = (qN[+1.0] - qN[-1.0]) / (2.0 * eps)
         print(f"[fd {args.variant} eps={eps:.0e}] <dqN,lamN> = {np.vdot(dq_fd, lamN):.15e}   "
               f"|dqN|_2 = {np.linalg.norm(dq_fd):.15e}   "

@@ -313,17 +313,13 @@ jobs:
           mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
           mk qs1 's/^( *qsplit *=).*/\1 1/'
           grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
-          # Which dynamics field's coupling into the tracers is mis-differentiated by the Fad tangent?
-          # Noisy tracers, limiter OFF (smooth map), qsplit=1 and qsplit=2, normal dt and tiny dt.
+          # Fad vs Real *values* after prim_step, and the dyn->q coupling (u only), limiter off, qsplit=1
           export HOMME_DEBUG_NO_LIMITER=1
-          for nl in nl_qs1 nl_base; do
-            for dt in 300 0.01; do
-              for f in u vtheta_dp dp phi; do
-                echo "=== PERTURB ONLY $f: nl=$nl dt=$dt limiter OFF"
-                $T -nml $nl.nl -dt $dt --variant dyn --only $f --qdp-init random --fd 1e-6 1e-8 2>&1 | grep -v "dyn out"
-              done
-            done
-          done
+          echo "=== values: qsplit=1 u-only";   $T -nml nl_qs1.nl --variant dyn --only u --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
+          echo "=== values: qsplit=1 dp-only";  $T -nml nl_qs1.nl --variant dyn --only dp --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
+          echo "=== values: qsplit=1 q-only";   $T -nml nl_qs1.nl --variant q --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
+          unset HOMME_DEBUG_NO_LIMITER
+          echo "=== values (limiter ON): qsplit=1 q-only"; $T -nml nl_qs1.nl --variant q --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
           exit 0
 
       # ---------------------------------------------------------------------
