@@ -58,6 +58,8 @@ def parse_args(argv):
     p.add_argument("--variant", choices=["both", "dyn", "q"], default="both",
                    help="Which initial perturbation the forward run carries")
     p.add_argument("--adjoint", action="store_true", help="Also run the adjoint (qdp seed only)")
+    p.add_argument("--fd", type=float, nargs="*", default=[],
+                   help="Also compute <dqN,lamN> by central finite differences of the Real prim_step, for these eps")
     p.add_argument("--qdp-init", choices=["smooth", "random"], default="smooth")
     return p.parse_args(argv[1:])
 
@@ -157,6 +159,26 @@ def main(argv):
     # Also the pieces of the fwd result, to compare across runs
     print(f"[fwd {args.variant}] <dqN,lamN> = {rhs:.15e}", flush=True)
     print(f"[fwd {args.variant}] |dqN|_2 = {np.linalg.norm(duN['qdp']):.15e}", flush=True)
+    # ===== Finite differences with the Real stack (independent check of the fwd Fad value) ===== #
+    for eps in args.fd:
+        qN = {}
+        for sign in (+1.0, -1.0):
+            sin, sout = pyhommexx.get_prim_step_qdp_slots()
+            for name in FIELDS:
+                xp = x0[name] + sign * eps * du0[name]
+                for tlv in (-1, 0, 1):
+                    pyhommexx.set_state_var(np.ascontiguousarray(xp), name, "real", tlv)
+            pyhommexx.set_qdp(np.ascontiguousarray(qdp0 + sign * eps * dq0), "real", sin)
+            pyhommexx.prim_step(args.dt, "real")
+            arr = np.zeros(qshape)
+            pyhommexx.get_qdp(arr, "real", sout)
+            qN[sign] = arr.copy()
+        dq_fd = (qN[+1.0] - qN[-1.0]) / (2.0 * eps)
+        print(f"[fd {args.variant} eps={eps:.0e}] <dqN,lamN> = {np.vdot(dq_fd, lamN):.15e}   "
+              f"|dqN|_2 = {np.linalg.norm(dq_fd):.15e}   "
+              f"rel diff of dqN vs fwd fad: {np.linalg.norm(dq_fd - duN['qdp'])/np.linalg.norm(duN['qdp']):.3e}",
+              flush=True)
+
     if not args.adjoint:
         pyhommexx.finalize()
         return

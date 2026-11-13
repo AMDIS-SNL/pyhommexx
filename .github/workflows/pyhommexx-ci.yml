@@ -313,16 +313,16 @@ jobs:
           mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
           mk qs1 's/^( *qsplit *=).*/\1 1/'
           grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
-          # 1. Splitting the fwd result: perturbation on dyn only / on q only / both
-          for v in dyn q both; do echo "=== fwd variant $v"; $T -nml nl_base.nl --variant $v; done
-          # 2. Adjoint, base config (also prints the pieces of <du0,lam0>)
-          echo "=== base"; $T -nml nl_base.nl --adjoint
-          # 3. Variations (adjoint vs fwd 'both')
-          echo "=== nu_q=0";           $T -nml nl_nuq0.nl --adjoint
-          echo "=== limiter 8";        $T -nml nl_lim8.nl --adjoint
-          echo "=== nu_q=0, limiter 8"; $T -nml nl_nuq0lim8.nl --adjoint
-          echo "=== random tracers";   $T -nml nl_base.nl --adjoint --qdp-init random
-          echo "=== dt=30";            $T -nml nl_base.nl --adjoint -dt 30
+          # 1. fwd Fad vs central finite differences of the Real prim_step, for each perturbation
+          #    (dyn only / q only / both), smooth tracers and noisy tracers. No adjoint here (fast).
+          for init in smooth random; do
+            for v in dyn q both; do
+              echo "=== FD: init=$init variant=$v"
+              $T -nml nl_base.nl --variant $v --qdp-init $init --fd 1e-3 1e-5 1e-7
+            done
+          done
+          # 2. Is it the data (smooth tracers)? Adjoint with a few tracer fields, split of <du0,lam0>
+          echo "=== adjoint, smooth tracers, base";   $T -nml nl_base.nl --adjoint --fd 1e-5
           exit 0
 
       # ---------------------------------------------------------------------
