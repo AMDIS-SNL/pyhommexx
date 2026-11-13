@@ -313,15 +313,22 @@ jobs:
           mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
           mk qs1 's/^( *qsplit *=).*/\1 1/'
           grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
-          # FD vs fwd Fad, dynamics outputs (read at np1, like the Fad sens) and q output
-          for init in random smooth; do
-            for v in dyn q; do
-              echo "=== FD: init=$init variant=$v"
-              $T -nml nl_base.nl --variant $v --qdp-init $init --fd 1e-5 1e-7 1e-9
-            done
+          # A. Limiter ON: do the approximate limiter branches (0-floor / mass relaxation) fire?
+          #    (counters printed by euler_step_adj: [dbg-limiter-adj])
+          for init in smooth random; do
+            echo "=== LIMITER ON, adjoint + FD, init=$init"
+            $T -nml nl_base.nl --adjoint --qdp-init $init --fd 1e-6
           done
-          echo "=== FD: init=random variant=dyn qsplit=1"
-          $T -nml nl_qs1.nl --variant dyn --qdp-init random --fd 1e-5 1e-7 1e-9
+          # B. Limiter OFF (HOMME_DEBUG_NO_LIMITER, fwd and adjoint): is the map smooth? does adjoint == fwd == FD?
+          export HOMME_DEBUG_NO_LIMITER=1
+          for init in smooth random; do
+            for v in dyn q; do
+              echo "=== LIMITER OFF: FD init=$init variant=$v"
+              $T -nml nl_base.nl --variant $v --qdp-init $init --fd 1e-6 1e-8
+            done
+            echo "=== LIMITER OFF: adjoint + FD, init=$init"
+            $T -nml nl_base.nl --adjoint --qdp-init $init --fd 1e-6 1e-8
+          done
           exit 0
 
       # ---------------------------------------------------------------------
