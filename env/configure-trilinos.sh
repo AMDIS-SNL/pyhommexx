@@ -1,9 +1,9 @@
-TRILINOS_SRC=/projects/amdis/tpl/Trilinos-trilinos-release-16-2-0
+TRILINOS_SRC=/projects/amdis/tpl/Trilinos-trilinos-release-17-3-0
 
 cmake -B $SCRATCH/build-sacado \
 -DCMAKE_BUILD_TYPE=RelWithDebInfo \
 -DTPL_ENABLE_MPI=ON \
--DCMAKE_CXX_STANDARD=17 \
+-DCMAKE_CXX_STANDARD=20 \
 -DCMAKE_C_COMPILER=mpicc \
 -DCMAKE_CXX_COMPILER=mpicxx \
 -DTrilinos_ENABLE_Fortran=OFF \
