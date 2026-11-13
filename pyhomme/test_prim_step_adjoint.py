@@ -13,6 +13,9 @@ where
  - dF^T * lamN is the adjoint: prim_step_adj, from a checkpoint of the initial state, applied to
    a (random) seed lamN. Since the identity is linear in lamN, we check it separately for each
    field seeded alone: if something goes wrong, this tells us which field.
+The directions du0 are chosen smooth, i.e., continuous across elements (see the comment where they are
+built): independent random values on each GLL node are not valid directions. The seeds lamN are covectors,
+and can be random on each node.
 It is the python version of prim_step_adjoint_ut (in E3SM's homme unit tests), going through
 the same pyhommexx entry points that the training loop will use. A scalar objective J of the final
 state is just the special case lamN = dJ/dx_N: dJ/dp = <lamN, dF * du0> = <dF^T * lamN, du0>.
@@ -103,7 +106,8 @@ def main(argv):
     qdp0 = np.zeros(qshape)
     for iq in range(qsize):
         # Smooth (so continuous across elements) and positive, so that the limiter stays away from
-        # its zero floor and from its mass-relaxation branch (where the adjoint is approximate)
+        # its zero floor and from its mass-relaxation branch (where the adjoint is approximate; neither
+        # fires here, but the limiter does clip a good part of the points)
         q = 1.0e-3 * (1.0 + 0.5 * np.cos(lat) * np.sin((iq + 1) * lon + 0.3 * iq))
         qdp0[:, iq] = q[..., None] * x0["dp"]
 
@@ -117,9 +121,22 @@ def main(argv):
     # ===== Forward sensitivities: prim_step with the dpfad scalar type ===== #
     # Random tangent du0: for the dynamics it is x0*delta (perturb_state_var with factor=0 leaves
     # the value untouched, and sets the 1st derivative to x0*delta), for the tracers it's dq0.
-    delta = {name: rng.uniform(-1.0, 1.0, shape(name)) for name in FIELDS}
+    # The directions must be continuous across elements, like the fields themselves (which are DSS'd):
+    # shared GLL nodes are duplicated in neighboring elements, and the limiter's min/max bounds are
+    # reductions over those duplicates, which tie exactly. Independent random values on each copy are not
+    # a direction the model can move in, and make the (piecewise-linear) limiter ambiguous: the fwd mode
+    # picks one of the tied copies, the adjoint routes to all of them, finite differences average them.
+    # So the directions are smooth functions of (lat, lon, level), with random wavenumbers and phases.
+    def smooth_field(nk, m):
+        kk = (np.arange(nk) / nk)[None, None, None, :]
+        return (np.cos(lat)[..., None] *
+                np.sin(m * lon[..., None] + rng.uniform(0.0, 2.0 * np.pi) + 2.0 * np.pi * rng.uniform(0.5, 1.5) * kk))
+
+    delta = {name: 0.4 * smooth_field(shape(name)[-1], 1 + ifld % 3) for ifld, name in enumerate(FIELDS)}
     du0 = {name: x0[name] * delta[name] for name in FIELDS}
-    dq0 = qdp0 * rng.uniform(-1.0, 1.0, qshape)
+    dq0 = np.zeros(qshape)
+    for iq in range(qsize):
+        dq0[:, iq] = qdp0[:, iq] * 0.5 * smooth_field(nlev, 1 + iq % 3)
 
     pyhommexx.copy_state("real", "dpfad")
     for name in FIELDS:
@@ -179,6 +196,7 @@ def main(argv):
         ok = ok and good
         print(f"{target:>10} {lhs:>24.15e} {rhs:>24.15e} {rel:>10.2e}  {'ok' if good else 'FAILED'}")
 
+    pyhommexx.finalize()  # (otherwise MPI aborts at exit: MPI_Type_free after MPI_FINALIZE)
     assert ok, f"adjoint vs forward sensitivities mismatch (rtol={args.rtol:.1e}): see the table above"
     print("OK")
 
