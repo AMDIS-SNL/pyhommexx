@@ -60,7 +60,9 @@ env:
   E3SM_REPO: AMDIS-SNL/E3SM
   E3SM_REF: ${{ github.event.inputs.e3sm_ref || 'master' }}   # E3SM uses `master`; this repo uses `main`
   # --- versions ------------------------------------------------------------
-  TRILINOS_TAG: trilinos-release-16-2-0        # matches env/README.md (Sacado 16.2)
+  # HommeXX needs Sacado >= 17.1: SacadoTypes.hpp wraps Sacado::Fad::expm1, which is not in 16.2/17.0.
+  # (env/README.md and the cluster install in /projects/amdis/tpl are still at 16.2.0, and need the same bump.)
+  TRILINOS_TAG: trilinos-release-17-3-0
   NANOBIND_VERSION: "2.11.0"                    # from env/requirements.lock.txt
   CMAKE_VERSION: "3.31.6"                       # from amdis-modules.sh
   # --- paths ---------------------------------------------------------------
@@ -207,7 +209,7 @@ jobs:
             -DCMAKE_BUILD_TYPE=RelWithDebInfo \
             -DCMAKE_INSTALL_PREFIX="$TRILINOS_INSTALL" \
             -DTPL_ENABLE_MPI=ON \
-            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_CXX_STANDARD=20 \
             -DCMAKE_C_COMPILER=mpicc \
             -DCMAKE_CXX_COMPILER=mpicxx \
             -DTrilinos_ENABLE_Fortran=OFF \
@@ -238,7 +240,7 @@ jobs:
             -DCMAKE_C_FLAGS="-fPIC" \
             -DCMAKE_CXX_FLAGS="-fPIC" \
             -DCMAKE_Fortran_FLAGS="-fPIC" \
-            -DCMAKE_CXX_STANDARD=17 \
+            -DCMAKE_CXX_STANDARD=20 \
             -DHOMME_FIND_BLASLAPACK=ON \
             -DHOMMEXX_BFB_TESTING=OFF \
             -DHOMME_AMDIS_PROJECT=ON \
