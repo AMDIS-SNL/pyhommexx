@@ -313,13 +313,17 @@ jobs:
           mk nuq0lim8 's/^( *nu_q *=).*/\1 0/; s/^( *limiter_option *=).*/\1 8/'
           mk qs1 's/^( *qsplit *=).*/\1 1/'
           grep -n "nu_q\|limiter_option\|qsplit" nl_*.nl
-          # Fad vs Real *values* after prim_step, and the dyn->q coupling (u only), limiter off, qsplit=1
-          export HOMME_DEBUG_NO_LIMITER=1
-          echo "=== values: qsplit=1 u-only";   $T -nml nl_qs1.nl --variant dyn --only u --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
-          echo "=== values: qsplit=1 dp-only";  $T -nml nl_qs1.nl --variant dyn --only dp --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
-          echo "=== values: qsplit=1 q-only";   $T -nml nl_qs1.nl --variant q --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
-          unset HOMME_DEBUG_NO_LIMITER
-          echo "=== values (limiter ON): qsplit=1 q-only"; $T -nml nl_qs1.nl --variant q --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
+          # Ties hypothesis: smooth tracers, limiter ON, perturbation continuous across elements vs independent random
+          for sp in "" "--smooth-perturb"; do
+            for v in dyn q; do
+              echo "=== LIMITER ON, smooth tracers, perturb=[$sp], FD variant=$v"
+              $T -nml nl_base.nl --variant $v $sp --fd 1e-6 1e-8 2>&1 | grep -v "dyn out"
+            done
+          done
+          echo "=== LIMITER ON, smooth tracers, smooth perturb, ADJOINT"
+          $T -nml nl_base.nl --adjoint --smooth-perturb --fd 1e-6 2>&1 | grep -v "dyn out"
+          echo "=== LIMITER ON, random tracers, smooth perturb, ADJOINT"
+          $T -nml nl_base.nl --adjoint --smooth-perturb --qdp-init random --fd 1e-6 2>&1 | grep -v "dyn out"
           exit 0
 
       # ---------------------------------------------------------------------

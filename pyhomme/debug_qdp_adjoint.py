@@ -60,6 +60,8 @@ def parse_args(argv):
     p.add_argument("--adjoint", action="store_true", help="Also run the adjoint (qdp seed only)")
     p.add_argument("--only", choices=list(FIELDS), default=None,
                    help="Perturb only this dynamics field (with variant dyn/both)")
+    p.add_argument("--smooth-perturb", action="store_true",
+                   help="Use perturbations that are smooth (hence continuous across elements) instead of independent random per node")
     p.add_argument("--fd", type=float, nargs="*", default=[],
                    help="Also compute <dqN,lamN> by central finite differences of the Real prim_step, for these eps")
     p.add_argument("--qdp-init", choices=["smooth", "random"], default="smooth")
@@ -131,6 +133,18 @@ def main(argv):
     delta = {name: rng.uniform(-1.0, 1.0, shape(name)) for name in FIELDS}
     du0 = {name: x0[name] * delta[name] for name in FIELDS}
     dq0 = qdp0 * rng.uniform(-1.0, 1.0, qshape)
+    if args.smooth_perturb:
+        # Continuous across elements (function of lat/lon/level only), so tied copies of a shared node
+        # carry the same tangent
+        for ifld, name in enumerate(FIELDS):
+            nk = shape(name)[-1]
+            kk = (np.arange(nk) / nk)[None, None, None, :]
+            delta[name] = 0.4 * np.cos(lat)[..., None] * np.sin((1 + ifld % 3) * lon[..., None] + 0.5 * ifld + 3.0 * kk)
+            du0[name] = x0[name] * delta[name]
+        kq = (np.arange(nlev) / nlev)[None, None, None, :]
+        dq0 = np.zeros(qshape)
+        for iq in range(qsize):
+            dq0[:, iq] = qdp0[:, iq] * (0.5 * np.cos(lat)[..., None] * np.sin(lon[..., None] + 0.7 * iq + 2.0 * kq))
     if args.variant == "q":
         du0 = {name: 0.0 * du0[name] for name in FIELDS}
         delta = {name: 0.0 * delta[name] for name in FIELDS}
